@@ -1,6 +1,10 @@
 import { useState } from 'react'
 
+import { createGreenApiClient } from './api/greenApi'
 import { getRuntimeConfig } from './config/runtime'
+import type { GreenApiCredentials } from './domain/chat'
+import { ChatWorkspace } from './features/chat/ChatWorkspace'
+import { ConnectionForm } from './features/connection/ConnectionForm'
 
 type AppProps = {
   apiUrl?: string
@@ -8,8 +12,7 @@ type AppProps = {
 
 export function App({ apiUrl }: AppProps) {
   const configuration = getRuntimeConfig(apiUrl)
-  const [instanceId, setInstanceId] = useState('')
-  const [apiToken, setApiToken] = useState('')
+  const [connection, setConnection] = useState<{ credentials: GreenApiCredentials; phone: string }>()
 
   if ('error' in configuration) {
     return (
@@ -25,6 +28,10 @@ export function App({ apiUrl }: AppProps) {
     )
   }
 
+  if (connection) {
+    return <main className="app-shell"><ChatWorkspace client={createGreenApiClient({ apiUrl: configuration.apiUrl })} {...connection} /></main>
+  }
+
   return (
     <main className="app-shell">
       <section className="connection-card" aria-labelledby="app-title">
@@ -35,40 +42,7 @@ export function App({ apiUrl }: AppProps) {
           входящими уведомлениями
         </p>
 
-        <form
-          className="connection-form"
-          onSubmit={(event) => {
-            event.preventDefault()
-          }}
-        >
-          <label htmlFor="instance-id">ID инстанса</label>
-          <input
-            id="instance-id"
-            name="instanceId"
-            value={instanceId}
-            onChange={(event) => setInstanceId(event.target.value)}
-            autoComplete="off"
-            inputMode="numeric"
-            required
-          />
-
-          <label htmlFor="api-token">API token инстанса</label>
-          <input
-            id="api-token"
-            name="apiToken"
-            type="password"
-            value={apiToken}
-            onChange={(event) => setApiToken(event.target.value)}
-            autoComplete="off"
-            required
-          />
-
-          <p className="hint">
-            Данные остаются только в памяти этой вкладки. Прямые browser-запросы требуют
-            разрешённый CORS со стороны GREEN-API
-          </p>
-          <button type="submit">Продолжить</button>
-        </form>
+        <ConnectionForm onConnect={(credentials, phone) => setConnection({ credentials, phone })} />
       </section>
     </main>
   )
