@@ -1,9 +1,13 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
 
 describe('App', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
   it('renders the controlled credentials form with valid public configuration', () => {
     render(<App apiUrl="https://api.green-api.com" />)
 
@@ -13,6 +17,8 @@ describe('App', () => {
   })
 
   it('shows a configuration error before any chat interaction when the URL is unavailable', () => {
+    vi.stubEnv('VITE_GREEN_API_URL', undefined)
+
     render(<App />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('VITE_GREEN_API_URL')
