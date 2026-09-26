@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type SubmitEvent } from 'react'
+import { useRef, useState, type SubmitEvent } from 'react'
 
 import type { createGreenApiClient } from '../../api/greenApi'
 import type { GreenApiCredentials, IncomingNotification, OutgoingMessageStatus } from '../../domain/chat'
+import { useChatContact } from './useChatContact'
 import { useNotificationPolling } from './useNotificationPolling'
 
 type ChatWorkspaceProps = {
@@ -19,40 +20,13 @@ type Message = IncomingMessage | OutgoingMessage
 export function ChatWorkspace({ client, credentials, phone, onReturnToConnection }: ChatWorkspaceProps) {
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
-  const [contactName, setContactName] = useState<string>()
-  const [avatarUrl, setAvatarUrl] = useState<string>()
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState('')
   const temporaryId = useRef(0)
   const pendingStatuses = useRef(new Map<string, OutgoingMessageStatus>())
   const sendInFlight = useRef(false)
 
-  useEffect(() => {
-    let ignore = false
-    const controller = new AbortController()
-    const chatId = `${phone}@c.us`
-
-    setContactName(undefined)
-    setAvatarUrl(undefined)
-
-    void client.getContactInfo(credentials, chatId, controller.signal)
-      .then((contact) => {
-        const displayName = contact.contactName || contact.name
-        if (!ignore && displayName) setContactName(displayName)
-      })
-      .catch(() => {})
-
-    void client.getAvatar(credentials, chatId, controller.signal)
-      .then((avatar) => {
-        if (!ignore && avatar.available && avatar.url) setAvatarUrl(avatar.url)
-      })
-      .catch(() => {})
-
-    return () => {
-      ignore = true
-      controller.abort()
-    }
-  }, [client, credentials, phone])
+  const { contactName, avatarUrl, clearAvatar } = useChatContact({ client, credentials, phone })
 
   const { status: pollingStatus, retry } = useNotificationPolling({
     client,
@@ -137,7 +111,7 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
         <p className="eyebrow">Личный чат</p>
         <h1 id="chat-title">
           {avatarUrl
-            ? <img className="chat-avatar" data-testid="chat-avatar" src={avatarUrl} alt="" onError={() => setAvatarUrl(undefined)} />
+            ? <img className="chat-avatar" data-testid="chat-avatar" src={avatarUrl} alt="" onError={clearAvatar} />
             : <span className="chat-avatar chat-avatar--fallback" data-testid="chat-avatar" aria-hidden="true">{avatarInitial}</span>}
           <span>{displayName}</span>
         </h1>
