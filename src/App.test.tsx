@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
@@ -375,7 +375,27 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
     fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Вернуться к подключению' }))
+    const terminalNotice = await screen.findByRole('alert')
+    fireEvent.click(within(terminalNotice).getByRole('button', { name: 'Вернуться к подключению' }))
+    expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
+    expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
+  })
+
+  it('returns to the connection form from the chat header', async () => {
+    arrangeClient()
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    const returnButton = await screen.findByRole('button', { name: 'Вернуться к подключению' })
+    expect(returnButton.querySelector('svg')).toBeInTheDocument()
+    expect(returnButton).toHaveAttribute('title', 'Вернуться к подключению')
+    fireEvent.click(returnButton)
     expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
     expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
   })
