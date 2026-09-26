@@ -11,17 +11,14 @@ vi.mock('./api/greenApi', async (importOriginal) => {
 
 const sendMessage = vi.fn()
 const getContactInfo = vi.fn()
-const getAvatar = vi.fn()
 const receiveNotification = vi.fn()
 const deleteNotification = vi.fn()
 
 function arrangeClient() {
   getContactInfo.mockResolvedValue({})
-  getAvatar.mockResolvedValue({ available: false })
   vi.mocked(createGreenApiClient).mockReturnValue({
     sendMessage,
     getContactInfo,
-    getAvatar,
     receiveNotification,
     deleteNotification,
   })
@@ -128,8 +125,7 @@ describe('App', () => {
 
   it('shows an available contact avatar', async () => {
     arrangeClient()
-    getContactInfo.mockResolvedValue({ name: 'Василиса' })
-    getAvatar.mockResolvedValue({ available: true, url: 'https://pps.whatsapp.net/avatar.jpg' })
+    getContactInfo.mockResolvedValue({ name: 'Василиса', avatar: 'https://4100.api.green-api.com/download/avatar.jpg' })
     receiveNotification.mockImplementation(() => new Promise(() => {}))
 
     render(<App apiUrl="https://api.green-api.com" />)
@@ -141,19 +137,14 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByTestId('chat-avatar')).toHaveAttribute(
       'src',
-      'https://pps.whatsapp.net/avatar.jpg',
+      'https://4100.api.green-api.com/download/avatar.jpg',
     ))
-    expect(getAvatar).toHaveBeenCalledWith(
-      { instanceId: '123', apiToken: 'secret' },
-      '79991234567@c.us',
-      expect.any(AbortSignal),
-    )
+    expect(getContactInfo).toHaveBeenCalledTimes(1)
   })
 
   it('shows an initial fallback when the contact avatar is unavailable', async () => {
     arrangeClient()
-    getContactInfo.mockResolvedValue({ name: 'Василиса' })
-    getAvatar.mockResolvedValue({ available: false })
+    getContactInfo.mockResolvedValue({ name: 'Василиса', avatar: '' })
     receiveNotification.mockImplementation(() => new Promise(() => {}))
 
     render(<App apiUrl="https://api.green-api.com" />)
@@ -164,6 +155,59 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
 
     expect(await screen.findByTestId('chat-avatar')).toHaveTextContent('В')
+  })
+
+  it('rejects a non-HTTPS contact avatar URL', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса', avatar: 'javascript:alert(1)' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: 'Василиса' })).toBeInTheDocument()
+    expect(screen.getByTestId('chat-avatar')).not.toHaveAttribute('src')
+  })
+
+  it('shows a hidden-number reply only when its chatId matches the looked-up contact', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса', chatId: '10000000', chatType: 'user', phoneNumber: '79991234567' })
+    let resolveReceive: ((result: { receiptId: number; notification: object }) => void) | undefined
+    receiveNotification
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveReceive = resolve }))
+      .mockResolvedValueOnce({ receiptId: 52, notification: {
+        idMessage: 'matching', typeWebhook: 'incomingMessageReceived', chatId: '10000000',
+        chatType: 'user', senderPhoneNumber: '0', typeMessage: 'textMessage', text: 'Ответ собеседника',
+      } })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    expect(await screen.findByRole('heading', { name: 'Василиса' })).toBeInTheDocument()
+
+    const hiddenReply = (chatId: string, idMessage: string, text: string) => ({
+      idMessage,
+      typeWebhook: 'incomingMessageReceived',
+      chatId,
+      chatType: 'user',
+      senderPhoneNumber: '0',
+      typeMessage: 'textMessage',
+      text,
+    })
+    resolveReceive?.({ receiptId: 51, notification: hiddenReply('other-chat', 'other', 'Чужой ответ') })
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText('Чужой ответ')).not.toBeInTheDocument()
+    expect(screen.getByText('Ответ собеседника')).toBeInTheDocument()
   })
 
   it('uses the profile name when the contact is not saved in the phone book', async () => {
@@ -184,7 +228,14 @@ describe('App', () => {
   it('keeps the phone number and lets the user send a message when contact lookup fails', async () => {
     arrangeClient()
     getContactInfo.mockRejectedValue(new GreenApiError('retryable'))
-    receiveNotification.mockImplementation(() => new Promise(() => {}))
+    receiveNotification
+      .mockResolvedValueOnce({ receiptId: 60, notification: {
+        idMessage: 'incoming-after-lookup-error', typeWebhook: 'incomingMessageReceived',
+        chatId: '10000000', chatType: 'user', senderPhoneNumber: '79991234567',
+        typeMessage: 'textMessage', text: 'Ответ без lookup',
+      } })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
 
     render(<App apiUrl="https://api.green-api.com" />)
     fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
@@ -196,6 +247,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '+79991234567' })).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Привет' } })
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled()
+    expect(await screen.findByText('Ответ без lookup')).toBeInTheDocument()
   })
 
   it('shows the sending time, a spinner, and double checks after the message is read', async () => {
