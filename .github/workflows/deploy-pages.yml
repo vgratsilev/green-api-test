@@ -34,6 +34,7 @@ jobs:
       - name: Build
         run: npm run build
         env:
+          VITE_GREEN_API_URL: ${{ vars.VITE_GREEN_API_URL }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Test
