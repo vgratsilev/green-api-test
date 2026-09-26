@@ -108,7 +108,14 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
   return (
     <section className="chat-workspace" aria-labelledby="chat-title">
       <header className="chat-header">
-        <p className="eyebrow">Личный чат</p>
+        <div className="chat-header-title">
+          <button className="chat-return" type="button" aria-label="Вернуться к подключению" title="Вернуться к подключению" onClick={onReturnToConnection}>
+            <svg className="chat-return-icon" aria-hidden="true" viewBox="0 0 16 16">
+              <path d="m9.5 3-5 5 5 5" />
+            </svg>
+          </button>
+          <p className="eyebrow">Личный чат</p>
+        </div>
         <h1 id="chat-title">
           {avatarUrl
             ? <img className="chat-avatar" data-testid="chat-avatar" src={avatarUrl} alt="" onError={clearAvatar} />
