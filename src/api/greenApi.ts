@@ -1,6 +1,7 @@
 import type {
   GreenApiCredentials,
   IncomingNotification,
+  OutgoingMessageStatus,
   ReceivedNotification,
 } from '../domain/chat'
 
@@ -34,7 +35,7 @@ export type DeleteResult = { deleted: boolean }
 export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: ClientOptions) {
   function endpoint(
     credentials: GreenApiCredentials,
-    method: 'sendMessage' | 'receiveNotification' | 'deleteNotification',
+    method: 'sendMessage' | 'getContactInfo' | 'getAvatar' | 'receiveNotification' | 'deleteNotification',
     receiptId?: number,
   ) {
     const path = [
@@ -81,6 +82,50 @@ export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: Clien
   }
 
   return {
+    async getContactInfo(
+      credentials: GreenApiCredentials,
+      chatId: string,
+      signal?: AbortSignal,
+    ) {
+      const body = await request(endpoint(credentials, 'getContactInfo'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chatId }),
+        signal,
+      })
+
+      if (!isRecord(body)) {
+        throw new GreenApiError('terminal')
+      }
+
+      return {
+        contactName: stringField(body.contactName),
+        name: stringField(body.name),
+      }
+    },
+
+    async getAvatar(
+      credentials: GreenApiCredentials,
+      chatId: string,
+      signal?: AbortSignal,
+    ) {
+      const body = await request(endpoint(credentials, 'getAvatar'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chatId }),
+        signal,
+      })
+
+      if (!isRecord(body)) {
+        throw new GreenApiError('terminal')
+      }
+
+      return {
+        available: body.available === true,
+        url: stringField(body.urlAvatar),
+      }
+    },
+
     async sendMessage(
       credentials: GreenApiCredentials,
       chatId: string,
@@ -158,16 +203,22 @@ function normalizeNotification(body: unknown): IncomingNotification | undefined 
     ? messageData.textMessageData
     : undefined
 
-  const notification: IncomingNotification = {
+  const fields: IncomingNotification = {
     idMessage: stringField(body.idMessage),
     typeWebhook: stringField(body.typeWebhook),
+    chatId: stringField(body.chatId),
+    outgoingStatus: outgoingStatusField(body.status),
     chatType: senderData ? stringField(senderData.chatType) : undefined,
     senderPhoneNumber: senderData ? phoneField(senderData.senderPhoneNumber) : undefined,
     typeMessage: messageData ? stringField(messageData.typeMessage) : undefined,
     text: textMessageData ? stringField(textMessageData.textMessage) : undefined,
   }
 
-  return Object.values(notification).some((value) => value !== undefined) ? notification : undefined
+  const notification = Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined),
+  ) as IncomingNotification
+
+  return Object.keys(notification).length > 0 ? notification : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -184,4 +235,10 @@ function stringField(value: unknown): string | undefined {
 
 function phoneField(value: unknown): string | undefined {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
+}
+
+function outgoingStatusField(value: unknown): OutgoingMessageStatus | undefined {
+  return value === 'delivered' || value === 'read' || value === 'failed' || value === 'noAccount'
+    ? value
+    : undefined
 }

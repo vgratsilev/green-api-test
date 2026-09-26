@@ -2,19 +2,28 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
-import { createGreenApiClient } from './api/greenApi'
+import { createGreenApiClient, GreenApiError } from './api/greenApi'
 
-vi.mock('./api/greenApi', () => ({
-  createGreenApiClient: vi.fn(),
-}))
+vi.mock('./api/greenApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/greenApi')>()
+  return { ...actual, createGreenApiClient: vi.fn() }
+})
 
 const sendMessage = vi.fn()
+const getContactInfo = vi.fn()
+const getAvatar = vi.fn()
+const receiveNotification = vi.fn()
+const deleteNotification = vi.fn()
 
 function arrangeClient() {
+  getContactInfo.mockResolvedValue({})
+  getAvatar.mockResolvedValue({ available: false })
   vi.mocked(createGreenApiClient).mockReturnValue({
     sendMessage,
-    receiveNotification: vi.fn(),
-    deleteNotification: vi.fn(),
+    getContactInfo,
+    getAvatar,
+    receiveNotification,
+    deleteNotification,
   })
 }
 
@@ -97,9 +106,115 @@ describe('App', () => {
     expect(phoneInput).toHaveValue('+7')
   })
 
-  it('opens a normalized direct chat and shows a queued outgoing message after send succeeds', async () => {
+  it('shows the contact-book name in the chat header when GREEN-API returns it', async () => {
     arrangeClient()
-    sendMessage.mockResolvedValue({ idMessage: 'queued-message' })
+    getContactInfo.mockResolvedValue({ contactName: 'Василиса Премудрая', name: 'Василиса' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: 'Василиса Премудрая' })).toBeInTheDocument()
+    expect(getContactInfo).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      '79991234567@c.us',
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('shows an available contact avatar', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса' })
+    getAvatar.mockResolvedValue({ available: true, url: 'https://pps.whatsapp.net/avatar.jpg' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    await waitFor(() => expect(screen.getByTestId('chat-avatar')).toHaveAttribute(
+      'src',
+      'https://pps.whatsapp.net/avatar.jpg',
+    ))
+    expect(getAvatar).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      '79991234567@c.us',
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('shows an initial fallback when the contact avatar is unavailable', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса' })
+    getAvatar.mockResolvedValue({ available: false })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByTestId('chat-avatar')).toHaveTextContent('В')
+  })
+
+  it('uses the profile name when the contact is not saved in the phone book', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: 'Василиса' })).toBeInTheDocument()
+  })
+
+  it('keeps the phone number and lets the user send a message when contact lookup fails', async () => {
+    arrangeClient()
+    getContactInfo.mockRejectedValue(new GreenApiError('retryable'))
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: '+79991234567' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Привет' } })
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled()
+  })
+
+  it('shows the sending time, a spinner, and double checks after the message is read', async () => {
+    arrangeClient()
+    let resolveSend: ((result: { idMessage: string }) => void) | undefined
+    let resolveDelivery: ((result: { receiptId: number; notification: object }) => void) | undefined
+    sendMessage.mockImplementation(() => new Promise((resolve) => { resolveSend = resolve }))
+    receiveNotification
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveDelivery = resolve }))
+      .mockResolvedValueOnce({
+        receiptId: 42,
+        notification: {
+          idMessage: 'queued-message',
+          typeWebhook: 'outgoingMessageStatus',
+          outgoingStatus: 'read',
+        },
+      })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
 
     render(<App apiUrl="https://api.green-api.com" />)
 
@@ -114,19 +229,34 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Привет' } })
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
 
+    expect(await screen.findByLabelText('Отправляется')).toBeInTheDocument()
+    resolveSend?.({ idMessage: 'queued-message' })
+
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
       { instanceId: '123', apiToken: 'secret' },
       '79991234567@c.us',
       'Привет',
     ))
     expect(screen.getByText('Привет')).toBeInTheDocument()
-    expect(screen.getByText('В очереди')).toBeInTheDocument()
+    expect(screen.getByLabelText('Время отправки')).toHaveTextContent(/^\d{2}:\d{2}$/)
+    resolveDelivery?.({
+      receiptId: 41,
+      notification: {
+        idMessage: 'queued-message',
+        typeWebhook: 'outgoingMessageStatus',
+        outgoingStatus: 'delivered',
+      },
+    })
+    expect(await screen.findByLabelText('Доставлено')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Прочитано')).toBeInTheDocument()
     expect(screen.getByLabelText('Сообщение')).toHaveValue('')
   })
 
-  it('keeps the draft and does not add a message when sending fails', async () => {
+  it('keeps the failed message in the chat with a retry control', async () => {
     arrangeClient()
-    sendMessage.mockRejectedValue(new Error('secret https://api.green-api.com/token'))
+    sendMessage
+      .mockRejectedValueOnce(new Error('secret https://api.green-api.com/token'))
+      .mockResolvedValueOnce({ idMessage: 'retried-message' })
 
     render(<App apiUrl="https://api.green-api.com" />)
     fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
@@ -139,9 +269,115 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Не удалось отправить'))
     expect(screen.getByLabelText('Сообщение')).toHaveValue('Не теряй меня')
-    expect(screen.queryByText('В очереди')).not.toBeInTheDocument()
+    expect(screen.getAllByText('Не теряй меня')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить отправку' }))
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2))
+    expect(screen.getByLabelText('Отправляется')).toBeInTheDocument()
     expect(document.body).not.toHaveTextContent('secret')
     expect(document.body).not.toHaveTextContent('https://api.green-api.com/token')
+  })
+
+  it('shows retry when GREEN-API reports an unresolved recipient without a message id', async () => {
+    arrangeClient()
+    let resolveFailure: ((result: { receiptId: number; notification: object }) => void) | undefined
+    sendMessage.mockResolvedValue({ idMessage: 'outgoing-1' })
+    receiveNotification
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFailure = resolve }))
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Проверь номер' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+    resolveFailure?.({
+      receiptId: 8,
+      notification: { typeWebhook: 'outgoingMessageStatus', chatId: '79991234567', outgoingStatus: 'noAccount' },
+    })
+
+    expect(await screen.findByRole('button', { name: 'Повторить отправку' })).toBeInTheDocument()
+  })
+
+  it('renders a matching incoming text once and acknowledges its receipt', async () => {
+    arrangeClient()
+    receiveNotification
+      .mockResolvedValueOnce({
+        receiptId: 42,
+        notification: {
+          idMessage: 'incoming-1',
+          typeWebhook: 'incomingMessageReceived',
+          chatType: 'user',
+          senderPhoneNumber: '+7 (999) 123-45-67',
+          typeMessage: 'textMessage',
+          text: '<img src=x onerror=alert(1)>',
+        },
+      })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      42,
+      expect.any(AbortSignal),
+    ))
+    expect(document.querySelector('img')).not.toBeInTheDocument()
+  })
+
+  it('does not render a repeated incoming message id twice', async () => {
+    arrangeClient()
+    const notification = {
+      idMessage: 'incoming-1',
+      typeWebhook: 'incomingMessageReceived',
+      chatType: 'user',
+      senderPhoneNumber: '79991234567',
+      typeMessage: 'textMessage',
+      text: 'Не дублируй меня',
+    }
+    receiveNotification
+      .mockResolvedValueOnce({ receiptId: 41, notification })
+      .mockResolvedValueOnce({ receiptId: 42, notification })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
+    expect(screen.getAllByText('Не дублируй меня')).toHaveLength(1)
+  })
+
+  it('returns to the connection form after a terminal polling error', async () => {
+    arrangeClient()
+    receiveNotification.mockRejectedValue(new GreenApiError('terminal'))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Вернуться к подключению' }))
+    expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
+    expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
   })
 
   it('keeps an invalid phone on the form and blocks empty or oversized messages', () => {
