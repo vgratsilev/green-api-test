@@ -1,11 +1,38 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
+import { createGreenApiClient } from './api/greenApi'
+
+vi.mock('./api/greenApi', () => ({
+  createGreenApiClient: vi.fn(),
+}))
+
+const sendMessage = vi.fn()
+
+function arrangeClient() {
+  vi.mocked(createGreenApiClient).mockReturnValue({
+    sendMessage,
+    receiveNotification: vi.fn(),
+    deleteNotification: vi.fn(),
+  })
+}
+
+function chooseCountry(country: string) {
+  const countryNames: Record<string, RegExp> = {
+    RU: /Россия/,
+    US: /Соединенные Штаты/,
+    UZ: /Узбекистан/,
+  }
+
+  fireEvent.click(screen.getByRole('combobox', { name: 'Страна' }))
+  fireEvent.click(screen.getByRole('option', { name: countryNames[country] }))
+}
 
 describe('App', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.clearAllMocks()
   })
 
   it('renders the controlled credentials form with valid public configuration', () => {
@@ -14,6 +41,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Telegram text chat' })).toBeInTheDocument()
     expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
     expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
+    expect(screen.getByRole('combobox', { name: 'Страна' })).toHaveAttribute('aria-expanded', 'false')
   })
 
   it('shows a configuration error before any chat interaction when the URL is unavailable', () => {
@@ -23,5 +51,116 @@ describe('App', () => {
 
     expect(screen.getByRole('alert')).toHaveTextContent('VITE_GREEN_API_URL')
     expect(screen.queryByLabelText('ID инстанса')).not.toBeInTheDocument()
+  })
+
+  it('formats Russian and international recipient phone numbers while typing', () => {
+    render(<App apiUrl="https://api.green-api.com" />)
+
+    const phoneInput = screen.getByLabelText('Номер получателя')
+    chooseCountry('RU')
+    expect(phoneInput).toHaveValue('+7')
+    expect(screen.getByRole('combobox', { name: 'Страна' }).querySelector('img')).toHaveAttribute(
+      'src',
+      'https://flagcdn.com/w40/ru.png',
+    )
+
+    fireEvent.change(phoneInput, { target: { value: '+79951234567' } })
+    expect(phoneInput).toHaveValue('+7 995 123 45 67')
+
+    fireEvent.change(phoneInput, { target: { value: '+793938373888888' } })
+    expect(phoneInput).toHaveValue('+7 995 123 45 67')
+
+    fireEvent.change(phoneInput, { target: { value: '+7 995 123 45 6' } })
+    expect(phoneInput).toHaveValue('+7 995 123 45 6')
+
+    fireEvent.change(phoneInput, { target: { value: '' } })
+    expect(phoneInput).toHaveValue('+7')
+
+    chooseCountry('UZ')
+    expect(phoneInput).toHaveValue('+998')
+    fireEvent.change(phoneInput, { target: { value: '+998901234567' } })
+    expect(phoneInput).toHaveValue('+998 90 123 45 67')
+
+    chooseCountry('US')
+    expect(phoneInput).toHaveValue('+1')
+    fireEvent.change(phoneInput, { target: { value: '+12125551234' } })
+    expect(phoneInput).toHaveValue('+1 212 555 1234')
+  })
+
+  it('keeps the country code when the phone input is cleared', () => {
+    render(<App apiUrl="https://api.green-api.com" />)
+
+    const phoneInput = screen.getByLabelText('Номер получателя')
+    chooseCountry('RU')
+    fireEvent.change(phoneInput, { target: { value: '' } })
+
+    expect(phoneInput).toHaveValue('+7')
+  })
+
+  it('opens a normalized direct chat and shows a queued outgoing message after send succeeds', async () => {
+    arrangeClient()
+    sendMessage.mockResolvedValue({ idMessage: 'queued-message' })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(screen.getByRole('heading', { name: '+79991234567' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Привет' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      '79991234567@c.us',
+      'Привет',
+    ))
+    expect(screen.getByText('Привет')).toBeInTheDocument()
+    expect(screen.getByText('В очереди')).toBeInTheDocument()
+    expect(screen.getByLabelText('Сообщение')).toHaveValue('')
+  })
+
+  it('keeps the draft and does not add a message when sending fails', async () => {
+    arrangeClient()
+    sendMessage.mockRejectedValue(new Error('secret https://api.green-api.com/token'))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Не теряй меня' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Не удалось отправить'))
+    expect(screen.getByLabelText('Сообщение')).toHaveValue('Не теряй меня')
+    expect(screen.queryByText('В очереди')).not.toBeInTheDocument()
+    expect(document.body).not.toHaveTextContent('secret')
+    expect(document.body).not.toHaveTextContent('https://api.green-api.com/token')
+  })
+
+  it('keeps an invalid phone on the form and blocks empty or oversized messages', () => {
+    arrangeClient()
+    render(<App apiUrl="https://api.green-api.com" />)
+
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('международном формате')
+
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'x'.repeat(4097) } })
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeDisabled()
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 })

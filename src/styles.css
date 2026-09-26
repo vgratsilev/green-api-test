@@ -15,12 +15,16 @@ body {
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
   outline: 3px solid #168acd;
   outline-offset: 2px;
 }
@@ -86,6 +90,135 @@ input {
   color: inherit;
 }
 
+select {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid #aebfc8;
+  border-radius: 10px;
+  background: #fff;
+  color: inherit;
+}
+
+.phone-input-group {
+  display: flex;
+  gap: 8px;
+}
+
+.phone-input-group input {
+  min-width: 0;
+  flex: 1;
+}
+
+.country-combobox {
+  position: relative;
+  width: 84px;
+  flex: 0 0 84px;
+}
+
+.country-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 6px;
+  border: 1px solid #aebfc8;
+  background: #fff;
+  color: inherit;
+}
+
+.country-flag {
+  width: 30px;
+  height: 20px;
+  border: 1px solid #aebfc8;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.country-placeholder {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.country-chevron {
+  display: block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-right: 2px solid #477281;
+  border-bottom: 2px solid #477281;
+  transform: rotate(45deg);
+}
+
+.country-chevron-open {
+  transform: rotate(225deg);
+}
+
+.country-options {
+  position: absolute;
+  z-index: 1;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(20rem, calc(100vw - 32px));
+  max-height: 18rem;
+  margin: 0;
+  padding: 4px 16px 4px 4px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border: 1px solid #aebfc8;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgb(26 62 80 / 16%);
+  list-style: none;
+}
+
+.country-option {
+  display: grid;
+  width: 100%;
+  min-height: 40px;
+  grid-template-columns: 2rem 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 8px;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.country-option-flag {
+  width: 30px;
+  height: 20px;
+  border: 1px solid #aebfc8;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.country-option:hover,
+.country-option[aria-selected='true'] {
+  background: #eef4f7;
+}
+
+.country-code {
+  color: #477281;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid #aebfc8; border-radius: 10px; color: inherit; resize: vertical; }
+
 .hint {
   margin: 12px 0 4px;
   color: #4c5b65;
@@ -111,6 +244,21 @@ button {
   font-weight: 700;
 }
 
-button:hover {
+.connection-form > button:hover,
+.composer button:hover {
   background: #0c70ac;
 }
+
+button:disabled { cursor: not-allowed; opacity: .6; }
+
+.chat-workspace { display: grid; width: min(100%, 46rem); min-height: min(780px, calc(100svh - 48px)); overflow: hidden; border: 1px solid #d8e3e8; border-radius: 20px; background: #fff; box-shadow: 0 18px 45px rgb(26 62 80 / 12%); grid-template-rows: auto 1fr auto; }
+.chat-header { padding: 24px; border-bottom: 1px solid #d8e3e8; }
+.message-list { display: flex; min-height: 260px; flex-direction: column; gap: 12px; padding: 24px; background: #eef4f7; }
+.empty-state { margin: auto; color: #4c5b65; }
+.message { width: fit-content; max-width: min(86%, 32rem); margin-left: auto; padding: 10px 14px; border-radius: 16px 16px 4px; background: #d9f4d6; overflow-wrap: anywhere; }
+.message p { margin: 0; }
+.message span { display: block; margin-top: 4px; color: #477281; font-size: .78rem; text-align: right; }
+.composer { padding: 16px 24px 24px; }
+.composer button { width: 100%; }
+
+@media (max-width: 480px) { .app-shell { padding: 0; } .connection-card, .chat-workspace { min-height: 100svh; border: 0; border-radius: 0; } .connection-card { padding: 24px 16px; } .chat-header, .message-list, .composer { padding-left: 16px; padding-right: 16px; } }
