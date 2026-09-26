@@ -36,6 +36,9 @@ jobs:
         env:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
+      - name: Test
+        run: npm run test
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
