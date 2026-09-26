@@ -1,6 +1,7 @@
 import type {
   GreenApiCredentials,
   IncomingNotification,
+  OutgoingMessageStatus,
   ReceivedNotification,
 } from '../domain/chat'
 
@@ -158,16 +159,22 @@ function normalizeNotification(body: unknown): IncomingNotification | undefined 
     ? messageData.textMessageData
     : undefined
 
-  const notification: IncomingNotification = {
+  const fields: IncomingNotification = {
     idMessage: stringField(body.idMessage),
     typeWebhook: stringField(body.typeWebhook),
+    chatId: stringField(body.chatId),
+    outgoingStatus: outgoingStatusField(body.status),
     chatType: senderData ? stringField(senderData.chatType) : undefined,
     senderPhoneNumber: senderData ? phoneField(senderData.senderPhoneNumber) : undefined,
     typeMessage: messageData ? stringField(messageData.typeMessage) : undefined,
     text: textMessageData ? stringField(textMessageData.textMessage) : undefined,
   }
 
-  return Object.values(notification).some((value) => value !== undefined) ? notification : undefined
+  const notification = Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined),
+  ) as IncomingNotification
+
+  return Object.keys(notification).length > 0 ? notification : undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -184,4 +191,10 @@ function stringField(value: unknown): string | undefined {
 
 function phoneField(value: unknown): string | undefined {
   return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
+}
+
+function outgoingStatusField(value: unknown): OutgoingMessageStatus | undefined {
+  return value === 'delivered' || value === 'read' || value === 'failed' || value === 'noAccount'
+    ? value
+    : undefined
 }

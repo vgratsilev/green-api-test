@@ -72,6 +72,27 @@ describe('GREEN-API client', () => {
     )
   })
 
+  it('normalizes an outgoing message status with its message id', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      receiptId: 42,
+      body: {
+        typeWebhook: 'outgoingMessageStatus',
+        idMessage: 'outgoing-1',
+        status: 'read',
+      },
+    }))
+    const client = createGreenApiClient({ apiUrl, fetch })
+
+    await expect(client.receiveNotification(credentials)).resolves.toEqual({
+      receiptId: 42,
+      notification: {
+        idMessage: 'outgoing-1',
+        typeWebhook: 'outgoingMessageStatus',
+        outgoingStatus: 'read',
+      },
+    })
+  })
+
   it('treats an empty receive response as empty rather than a message', async () => {
     const fetch = vi.fn().mockResolvedValue(response(null))
     const client = createGreenApiClient({ apiUrl, fetch })

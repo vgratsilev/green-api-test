@@ -1,7 +1,7 @@
-import { useState, type SubmitEvent } from 'react'
+import { useRef, useState, type SubmitEvent } from 'react'
 
 import type { createGreenApiClient } from '../../api/greenApi'
-import type { GreenApiCredentials, IncomingNotification } from '../../domain/chat'
+import type { GreenApiCredentials, IncomingNotification, OutgoingMessageStatus } from '../../domain/chat'
 import { useNotificationPolling } from './useNotificationPolling'
 
 type ChatWorkspaceProps = {
@@ -11,13 +11,19 @@ type ChatWorkspaceProps = {
   onReturnToConnection: () => void
 }
 
-type Message = { id: string; text: string; direction: 'incoming' | 'outgoing' }
+type IncomingMessage = { id: string; text: string; direction: 'incoming' }
+type OutgoingState = 'sending' | 'delivered' | 'read' | 'failed'
+type OutgoingMessage = { id: string; text: string; direction: 'outgoing'; state: OutgoingState; sentAt: number }
+type Message = IncomingMessage | OutgoingMessage
 
 export function ChatWorkspace({ client, credentials, phone, onReturnToConnection }: ChatWorkspaceProps) {
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState('')
+  const temporaryId = useRef(0)
+  const pendingStatuses = useRef(new Map<string, OutgoingMessageStatus>())
+  const sendInFlight = useRef(false)
 
   const { status: pollingStatus, retry } = useNotificationPolling({
     client,
@@ -32,23 +38,64 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
         return [...current, { id: notification.idMessage, text: notification.text, direction: 'incoming' }]
       })
     },
+    onOutgoingStatus({ idMessage, status }) {
+      setMessages((current) => {
+        const messageIndex = idMessage
+          ? current.findIndex((message) => message.direction === 'outgoing' && message.id === idMessage)
+          : findLastSendingMessage(current)
+        if (messageIndex < 0) {
+          if (idMessage && sendInFlight.current) cachePendingStatus(pendingStatuses.current, idMessage, status)
+          return current
+        }
+
+        const message = current[messageIndex] as OutgoingMessage
+        const nextState = stateFromRemoteStatus(message.state, status)
+        if (nextState === message.state) return current
+
+        const nextMessages = [...current]
+        nextMessages[messageIndex] = { ...message, state: nextState }
+        return nextMessages
+      })
+    },
   })
 
-  async function send(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!draft.trim() || draft.length > 4096 || isSending) return
+  async function sendMessage(text: string, retryId?: string) {
+    if (sendInFlight.current) return
 
+    const localId = retryId ?? `sending-${temporaryId.current++}`
+
+    sendInFlight.current = true
+    setMessages((current) => retryId
+      ? current.map((message) => message.direction === 'outgoing' && message.id === retryId
+        ? { ...message, state: 'sending' }
+        : message)
+      : [...current, { id: localId, text, direction: 'outgoing', state: 'sending', sentAt: Date.now() }])
     setError('')
     setIsSending(true)
     try {
-      const result = await client.sendMessage(credentials, `${phone}@c.us`, draft)
-      setMessages((current) => [...current, { id: result.idMessage, text: draft, direction: 'outgoing' }])
-      setDraft('')
+      const result = await client.sendMessage(credentials, `${phone}@c.us`, text)
+      const pendingStatus = pendingStatuses.current.get(result.idMessage)
+      pendingStatuses.current.clear()
+      setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
+        ? { ...message, id: result.idMessage, state: pendingStatus ? stateFromRemoteStatus('sending', pendingStatus) : 'sending' }
+        : message))
+      if (!retryId) setDraft('')
     } catch {
+      pendingStatuses.current.clear()
+      setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
+        ? { ...message, state: 'failed' }
+        : message))
       setError('Не удалось отправить сообщение. Черновик сохранён; повторите отправку вручную.')
     } finally {
+      sendInFlight.current = false
       setIsSending(false)
     }
+  }
+
+  function send(event: SubmitEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!draft.trim() || draft.length > 4096 || isSending) return
+    void sendMessage(draft)
   }
 
   const invalidDraft = draft.trim().length === 0 || draft.length > 4096
@@ -59,8 +106,15 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
       <div className="message-list" aria-label="Сообщения">
         {messages.length === 0 ? <p className="empty-state">Сообщений пока нет.</p> : messages.map((message) => (
           <article className={`message message--${message.direction}`} key={message.id}>
-            <p>{message.text}</p>
-            {message.direction === 'outgoing' && <span>В очереди</span>}
+            <p>
+              {message.text}
+              {message.direction === 'outgoing' && (
+                <span className="message-meta">
+                <time aria-label="Время отправки" dateTime={new Date(message.sentAt).toISOString()}>{formatMessageTime(message.sentAt)}</time>
+                <MessageStatus message={message} disabled={isSending} onRetry={() => void sendMessage(message.text, message.id)} />
+                </span>
+              )}
+            </p>
           </article>
         ))}
       </div>
@@ -75,4 +129,48 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
       </form>
     </section>
   )
+}
+
+function MessageStatus({ message, disabled, onRetry }: { message: OutgoingMessage; disabled: boolean; onRetry: () => void }) {
+  if (message.state === 'sending') return <span className="message-status message-status--sending" role="status" aria-label="Отправляется" />
+  if (message.state === 'delivered') return <CheckIcon label="Доставлено" />
+  if (message.state === 'read') return <CheckIcon label="Прочитано" double />
+  return <button className="message-status message-status--failed" type="button" aria-label="Повторить отправку" title="Повторить отправку" disabled={disabled} onClick={onRetry}>↻</button>
+}
+
+function CheckIcon({ label, double = false }: { label: string; double?: boolean }) {
+  return (
+    <svg className="message-status message-status--check" aria-label={label} viewBox="0 0 16 12" role="img">
+      {double && <path d="m.5 6.5 3.5 3.5 6-8" />}
+      <path d={double ? 'm6.5 6.5 3.5 3.5 6-8' : 'm.5 6.5 3.5 3.5 6-8'} />
+    </svg>
+  )
+}
+
+function stateFromRemoteStatus(current: OutgoingState, status: OutgoingMessageStatus): OutgoingState {
+  if (current === 'failed' || current === 'read') return current
+  if (status === 'failed' || status === 'noAccount') return 'failed'
+  if (status === 'read') return 'read'
+  return 'delivered'
+}
+
+function findLastSendingMessage(messages: Message[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message.direction === 'outgoing' && message.state === 'sending') return index
+  }
+  return -1
+}
+
+function cachePendingStatus(statuses: Map<string, OutgoingMessageStatus>, idMessage: string, status: OutgoingMessageStatus) {
+  if (statuses.size === 20 && !statuses.has(idMessage)) {
+    const oldestId = statuses.keys().next().value
+    if (oldestId !== undefined) statuses.delete(oldestId)
+  }
+  statuses.set(idMessage, status)
+}
+
+function formatMessageTime(timestamp: number) {
+  const date = new Date(timestamp)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
 }

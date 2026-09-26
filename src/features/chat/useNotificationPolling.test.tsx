@@ -31,12 +31,14 @@ describe('useNotificationPolling', () => {
       .mockImplementation(() => new Promise(() => {}))
     const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
     const onIncoming = vi.fn()
+    const onOutgoingStatus = vi.fn()
 
     renderHook(() => useNotificationPolling({
       client: { receiveNotification, deleteNotification },
       credentials,
       phone: '79991234567',
       onIncoming,
+      onOutgoingStatus,
     }))
 
     await waitFor(() => expect(onIncoming).toHaveBeenCalledWith(incoming()))
@@ -52,16 +54,40 @@ describe('useNotificationPolling', () => {
       .mockImplementation(() => new Promise(() => {}))
     const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
     const onIncoming = vi.fn()
+    const onOutgoingStatus = vi.fn()
 
     renderHook(() => useNotificationPolling({
       client: { receiveNotification, deleteNotification },
       credentials,
       phone: '79991234567',
       onIncoming,
+      onOutgoingStatus,
     }))
 
     await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
     expect(onIncoming).not.toHaveBeenCalled()
+  })
+
+  it('forwards an outgoing delivery status and acknowledges its receipt', async () => {
+    const receiveNotification = vi.fn()
+      .mockResolvedValueOnce({
+        receiptId: 9,
+        notification: { idMessage: 'outgoing-1', typeWebhook: 'outgoingMessageStatus', outgoingStatus: 'delivered' },
+      })
+      .mockImplementation(() => new Promise(() => {}))
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
+    const onOutgoingStatus = vi.fn()
+
+    renderHook(() => useNotificationPolling({
+      client: { receiveNotification, deleteNotification },
+      credentials,
+      phone: '79991234567',
+      onIncoming: vi.fn(),
+      onOutgoingStatus,
+    }))
+
+    await waitFor(() => expect(onOutgoingStatus).toHaveBeenCalledWith({ idMessage: 'outgoing-1', status: 'delivered' }))
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(credentials, 9, expect.any(AbortSignal)))
   })
 
   it('retries a receive at 1, 2, and 4 seconds before stopping', async () => {
@@ -73,6 +99,7 @@ describe('useNotificationPolling', () => {
       credentials,
       phone: '79991234567',
       onIncoming: vi.fn(),
+      onOutgoingStatus: vi.fn(),
     }))
 
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
@@ -104,6 +131,7 @@ describe('useNotificationPolling', () => {
       credentials,
       phone: '79991234567',
       onIncoming: vi.fn(),
+      onOutgoingStatus: vi.fn(),
     }))
 
     await act(async () => { await vi.runAllTimersAsync() })
@@ -126,6 +154,7 @@ describe('useNotificationPolling', () => {
       credentials,
       phone: '79991234567',
       onIncoming: vi.fn(),
+      onOutgoingStatus: vi.fn(),
     }))
 
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })

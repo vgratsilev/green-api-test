@@ -218,6 +218,7 @@ select {
 }
 
 textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid #aebfc8; border-radius: 10px; color: inherit; resize: vertical; }
+textarea:focus-visible { outline: 0; border-color: #168acd; box-shadow: 0 0 0 2px rgb(22 138 205 / 28%); }
 
 .hint {
   margin: 12px 0 4px;
@@ -256,9 +257,15 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .message-list { display: flex; min-height: 260px; flex-direction: column; gap: 12px; padding: 24px; background: #eef4f7; }
 .empty-state { margin: auto; color: #4c5b65; }
 .message { width: fit-content; max-width: min(86%, 32rem); margin-left: auto; padding: 10px 14px; border-radius: 16px 16px 4px; background: #d9f4d6; overflow-wrap: anywhere; }
-.message--incoming { margin-right: auto; margin-left: 0; border-radius: 16px 16px 16px 4px; background: #fff; }
+.message--incoming { margin-right: auto; margin-left: 0; border-radius: 16px 16px 16px 4px; background: #fff; color: #182431; }
 .message p { margin: 0; }
-.message span { display: block; margin-top: 4px; color: #477281; font-size: .78rem; text-align: right; }
+.message-meta { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; color: #477281; font-size: .7rem; line-height: 1; vertical-align: baseline; }
+.message-status { display: inline-block; min-width: .75rem; color: inherit; font-size: .75rem; font-weight: 700; letter-spacing: -.12em; line-height: 1; }
+.message-status--sending { width: .75rem; height: .75rem; box-sizing: border-box; border: 1.5px solid currentcolor; border-right-color: transparent; border-radius: 50%; animation: message-spinner .7s linear infinite; }
+.message-status--check { width: 1rem; height: .75rem; min-width: 1rem; overflow: visible; fill: none; stroke: currentcolor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.6; vertical-align: -.08em; }
+.message-status--failed { min-width: .75rem; padding: 0; border: 0; background: transparent; color: #b3261e; font-size: .9rem; letter-spacing: 0; }
+.message-status--failed:hover { background: transparent; color: #7e1712; }
+@keyframes message-spinner { to { transform: rotate(360deg); } }
 .composer { padding: 16px 24px 24px; }
 .composer button { width: 100%; }
 

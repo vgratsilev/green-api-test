@@ -13,7 +13,7 @@ function formatPhone(value: string, country?: CountryCode) {
   const digits = value.replace(/\D/g, '')
   const valueWithCountryCode = value.startsWith('+') ? `+${digits}` : digits
 
-  return country ? new AsYouType(country).input(valueWithCountryCode) : valueWithCountryCode
+  return new AsYouType(country).input(valueWithCountryCode)
 }
 
 function getCountryPhonePrefix(country: CountryCode) {
@@ -31,6 +31,13 @@ function getNormalizedPhone(value: string, country?: CountryCode) {
   return formatter.getNumberValue()?.replace(/\D/g, '') ?? ''
 }
 
+function detectCountry(value: string) {
+  const formatter = new AsYouType()
+  formatter.input(value)
+
+  return formatter.getCountry()
+}
+
 export function ConnectionForm({ onConnect }: ConnectionFormProps) {
   const [instanceId, setInstanceId] = useState('')
   const [apiToken, setApiToken] = useState('')
@@ -40,7 +47,16 @@ export function ConnectionForm({ onConnect }: ConnectionFormProps) {
 
   function updatePhone(value: string) {
     if (!country) {
-      setPhone(formatPhone(value))
+      const formattedPhone = formatPhone(value)
+      const detectedCountry = detectCountry(formattedPhone)
+
+      setPhone(formattedPhone)
+      if (detectedCountry) {
+        setCountry(detectedCountry)
+        if (/^\d{7,15}$/.test(getNormalizedPhone(formattedPhone, detectedCountry))) {
+          setError('')
+        }
+      }
       return
     }
 
@@ -64,6 +80,9 @@ export function ConnectionForm({ onConnect }: ConnectionFormProps) {
     }
 
     setPhone(formattedPhone)
+    if (/^\d{7,15}$/.test(getNormalizedPhone(formattedPhone, country))) {
+      setError('')
+    }
   }
 
   function updateCountry(nextCountry: CountryCode) {

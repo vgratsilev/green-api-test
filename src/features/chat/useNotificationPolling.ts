@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { GreenApiError } from '../../api/greenApi'
-import type { GreenApiCredentials, IncomingNotification } from '../../domain/chat'
+import type { GreenApiCredentials, IncomingNotification, OutgoingMessageStatus } from '../../domain/chat'
 
 type PollingClient = {
   receiveNotification: (credentials: GreenApiCredentials, signal?: AbortSignal) => Promise<
@@ -21,6 +21,12 @@ type UseNotificationPollingOptions = {
   credentials: GreenApiCredentials
   phone: string
   onIncoming: (notification: IncomingNotification) => void
+  onOutgoingStatus: (notification: OutgoingStatusNotification) => void
+}
+
+type OutgoingStatusNotification = {
+  idMessage?: string
+  status: OutgoingMessageStatus
 }
 
 const retryDelays = [1_000, 2_000, 4_000]
@@ -30,12 +36,15 @@ export function useNotificationPolling({
   credentials,
   phone,
   onIncoming,
+  onOutgoingStatus,
 }: UseNotificationPollingOptions) {
   const [status, setStatus] = useState<PollingStatus>('polling')
   const [run, setRun] = useState(0)
   const pendingReceiptRef = useRef<number | undefined>(undefined)
   const onIncomingRef = useRef(onIncoming)
+  const onOutgoingStatusRef = useRef(onOutgoingStatus)
   onIncomingRef.current = onIncoming
+  onOutgoingStatusRef.current = onOutgoingStatus
 
   const retry = useCallback(() => {
     setStatus('polling')
@@ -78,6 +87,12 @@ export function useNotificationPolling({
           if (isMatchingIncomingText(received.notification, phone)) {
             onIncomingRef.current(received.notification)
           }
+          if (isMatchingOutgoingStatus(received.notification, phone)) {
+            onOutgoingStatusRef.current({
+              idMessage: received.notification.idMessage,
+              status: received.notification.outgoingStatus,
+            })
+          }
           pendingReceiptRef.current = received.receiptId
         }
 
@@ -119,6 +134,17 @@ function isMatchingIncomingText(
     && typeof notification.idMessage === 'string'
     && typeof notification.text === 'string'
     && normalizePhone(notification.senderPhoneNumber) === normalizePhone(activePhone)
+}
+
+function isMatchingOutgoingStatus(
+  notification: IncomingNotification | undefined,
+  activePhone: string,
+): notification is IncomingNotification & { outgoingStatus: OutgoingMessageStatus } {
+  if (notification?.typeWebhook !== 'outgoingMessageStatus' || notification.outgoingStatus === undefined) return false
+  if (typeof notification.idMessage === 'string') return true
+
+  return (notification.outgoingStatus === 'failed' || notification.outgoingStatus === 'noAccount')
+    && normalizePhone(notification.chatId) === normalizePhone(activePhone)
 }
 
 function normalizePhone(phone: string | undefined): string | undefined {
