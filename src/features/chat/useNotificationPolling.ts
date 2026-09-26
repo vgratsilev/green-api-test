@@ -20,6 +20,7 @@ type UseNotificationPollingOptions = {
   client: PollingClient
   credentials: GreenApiCredentials
   phone: string
+  contactChatId?: string
   onIncoming: (notification: IncomingNotification) => void
   onOutgoingStatus: (notification: OutgoingStatusNotification) => void
 }
@@ -35,6 +36,7 @@ export function useNotificationPolling({
   client,
   credentials,
   phone,
+  contactChatId,
   onIncoming,
   onOutgoingStatus,
 }: UseNotificationPollingOptions) {
@@ -45,6 +47,8 @@ export function useNotificationPolling({
   const onOutgoingStatusRef = useRef(onOutgoingStatus)
   onIncomingRef.current = onIncoming
   onOutgoingStatusRef.current = onOutgoingStatus
+  const contactChatIdRef = useRef(contactChatId)
+  contactChatIdRef.current = contactChatId
 
   const retry = useCallback(() => {
     setStatus('polling')
@@ -84,7 +88,7 @@ export function useNotificationPolling({
             return
           }
 
-          if (isMatchingIncomingText(received.notification, phone)) {
+          if (isMatchingIncomingText(received.notification, phone, contactChatIdRef.current)) {
             onIncomingRef.current(received.notification)
           }
           if (isMatchingOutgoingStatus(received.notification, phone)) {
@@ -127,13 +131,16 @@ export function useNotificationPolling({
 function isMatchingIncomingText(
   notification: IncomingNotification | undefined,
   activePhone: string,
+  contactChatId: string | undefined,
 ): notification is IncomingNotification & { idMessage: string; text: string } {
   return notification?.chatType === 'user'
     && notification.typeWebhook === 'incomingMessageReceived'
     && notification.typeMessage === 'textMessage'
     && typeof notification.idMessage === 'string'
     && typeof notification.text === 'string'
-    && normalizePhone(notification.senderPhoneNumber) === normalizePhone(activePhone)
+    && (contactChatId === undefined || notification.chatId === undefined || notification.chatId === contactChatId)
+    && (normalizePhone(notification.senderPhoneNumber) === normalizePhone(activePhone)
+      || (notification.senderPhoneNumber === '0' && contactChatId !== undefined && notification.chatId === contactChatId))
 }
 
 function isMatchingOutgoingStatus(

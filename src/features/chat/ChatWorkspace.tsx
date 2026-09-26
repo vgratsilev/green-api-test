@@ -26,12 +26,13 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
   const pendingStatuses = useRef(new Map<string, OutgoingMessageStatus>())
   const sendInFlight = useRef(false)
 
-  const { contactName, avatarUrl, clearAvatar } = useChatContact({ client, credentials, phone })
+  const { contactName, avatarUrl, contactChatId, clearAvatar } = useChatContact({ client, credentials, phone })
 
   const { status: pollingStatus, retry } = useNotificationPolling({
     client,
     credentials,
     phone,
+    contactChatId,
     onIncoming(notification: IncomingNotification) {
       setMessages((current) => {
         if (!notification.idMessage || !notification.text || current.some((message) => message.id === notification.idMessage)) {

@@ -68,6 +68,28 @@ describe('useNotificationPolling', () => {
     expect(onIncoming).not.toHaveBeenCalled()
   })
 
+  it('accepts a hidden-number reply only from the contact lookup chatId', async () => {
+    const receiveNotification = vi.fn()
+      .mockResolvedValueOnce({ receiptId: 7, notification: incoming({ idMessage: 'other', senderPhoneNumber: '0', chatId: 'other-chat' }) })
+      .mockResolvedValueOnce({ receiptId: 8, notification: incoming({ idMessage: 'matching', senderPhoneNumber: '0', chatId: '10000000' }) })
+      .mockImplementation(() => new Promise(() => {}))
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
+    const onIncoming = vi.fn()
+
+    renderHook(() => useNotificationPolling({
+      client: { receiveNotification, deleteNotification },
+      credentials,
+      phone: '79991234567',
+      contactChatId: '10000000',
+      onIncoming,
+      onOutgoingStatus: vi.fn(),
+    }))
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
+    expect(onIncoming).toHaveBeenCalledTimes(1)
+    expect(onIncoming).toHaveBeenCalledWith(incoming({ idMessage: 'matching', senderPhoneNumber: '0', chatId: '10000000' }))
+  })
+
   it('forwards an outgoing delivery status and acknowledges its receipt', async () => {
     const receiveNotification = vi.fn()
       .mockResolvedValueOnce({

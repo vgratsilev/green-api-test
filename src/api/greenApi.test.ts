@@ -10,7 +10,6 @@ const credentials = {
 const apiUrl = 'https://api.green-api.example'
 const secretUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/sendMessage/${encodeURIComponent(credentials.apiToken)}`
 const contactInfoUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/getContactInfo/${encodeURIComponent(credentials.apiToken)}`
-const avatarUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/getAvatar/${encodeURIComponent(credentials.apiToken)}`
 
 function response(body: unknown, init?: ResponseInit) {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -46,35 +45,22 @@ describe('GREEN-API client', () => {
     const fetch = vi.fn().mockResolvedValue(response({
       contactName: 'Василиса Премудрая',
       name: 'Василиса',
-      ignored: true,
+      chatId: '10000000',
+      chatType: 'user',
+      phoneNumber: 79998887766,
+      avatar: 'https://4100.api.green-api.com/download/avatar.jpg',
     }))
     const client = createGreenApiClient({ apiUrl, fetch })
 
     await expect(client.getContactInfo(credentials, '79998887766@c.us')).resolves.toEqual({
       contactName: 'Василиса Премудрая',
       name: 'Василиса',
+      chatId: '10000000',
+      chatType: 'user',
+      phoneNumber: '79998887766',
+      avatar: 'https://4100.api.green-api.com/download/avatar.jpg',
     })
     expect(fetch).toHaveBeenCalledWith(contactInfoUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chatId: '79998887766@c.us' }),
-      signal: undefined,
-    })
-  })
-
-  it('gets an available avatar URL for a direct chat', async () => {
-    const fetch = vi.fn().mockResolvedValue(response({
-      available: true,
-      urlAvatar: 'https://pps.whatsapp.net/avatar.jpg',
-      base64Avatar: 'ignored',
-    }))
-    const client = createGreenApiClient({ apiUrl, fetch })
-
-    await expect(client.getAvatar(credentials, '79998887766@c.us')).resolves.toEqual({
-      available: true,
-      url: 'https://pps.whatsapp.net/avatar.jpg',
-    })
-    expect(fetch).toHaveBeenCalledWith(avatarUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chatId: '79998887766@c.us' }),
@@ -89,7 +75,7 @@ describe('GREEN-API client', () => {
         body: {
           typeWebhook: 'incomingMessageReceived',
           idMessage: 'incoming-1',
-          senderData: { chatType: 'user', senderPhoneNumber: 79998887766 },
+          senderData: { chatId: '10000000', chatType: 'user', senderPhoneNumber: 79998887766 },
           messageData: { typeMessage: 'textMessage', textMessageData: { textMessage: 'Здравствуйте' } },
           ignored: 'field',
         },
@@ -102,6 +88,7 @@ describe('GREEN-API client', () => {
       notification: {
         idMessage: 'incoming-1',
         chatType: 'user',
+        chatId: '10000000',
         senderPhoneNumber: '79998887766',
         typeWebhook: 'incomingMessageReceived',
         typeMessage: 'textMessage',
@@ -135,6 +122,19 @@ describe('GREEN-API client', () => {
     })
   })
 
+  it('keeps the top-level chatId on an outgoing status without a message id', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      receiptId: 43,
+      body: { typeWebhook: 'outgoingMessageStatus', chatId: '79998887766', status: 'noAccount' },
+    }))
+    const client = createGreenApiClient({ apiUrl, fetch })
+
+    await expect(client.receiveNotification(credentials)).resolves.toEqual({
+      receiptId: 43,
+      notification: { typeWebhook: 'outgoingMessageStatus', chatId: '79998887766', outgoingStatus: 'noAccount' },
+    })
+  })
+
   it('treats an empty receive response as empty rather than a message', async () => {
     const fetch = vi.fn().mockResolvedValue(response(null))
     const client = createGreenApiClient({ apiUrl, fetch })
@@ -163,7 +163,7 @@ describe('GREEN-API client', () => {
     )
   })
 
-  it.each(['getContactInfo', 'getAvatar', 'sendMessage', 'receiveNotification', 'deleteNotification'])(
+  it.each(['getContactInfo', 'sendMessage', 'receiveNotification', 'deleteNotification'])(
     'returns a safe error for a non-OK %s response',
     async (method) => {
       const fetch = vi.fn().mockResolvedValue(response('token leaked in body', { status: 401 }))
@@ -172,8 +172,6 @@ describe('GREEN-API client', () => {
       const request =
         method === 'getContactInfo'
           ? client.getContactInfo(credentials, '79998887766@c.us')
-          : method === 'getAvatar'
-            ? client.getAvatar(credentials, '79998887766@c.us')
           : method === 'sendMessage'
           ? client.sendMessage(credentials, '79998887766@c.us', 'Привет')
           : method === 'receiveNotification'

@@ -35,7 +35,7 @@ export type DeleteResult = { deleted: boolean }
 export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: ClientOptions) {
   function endpoint(
     credentials: GreenApiCredentials,
-    method: 'sendMessage' | 'getContactInfo' | 'getAvatar' | 'receiveNotification' | 'deleteNotification',
+    method: 'sendMessage' | 'getContactInfo' | 'receiveNotification' | 'deleteNotification',
     receiptId?: number,
   ) {
     const path = [
@@ -101,28 +101,10 @@ export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: Clien
       return {
         contactName: stringField(body.contactName),
         name: stringField(body.name),
-      }
-    },
-
-    async getAvatar(
-      credentials: GreenApiCredentials,
-      chatId: string,
-      signal?: AbortSignal,
-    ) {
-      const body = await request(endpoint(credentials, 'getAvatar'), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ chatId }),
-        signal,
-      })
-
-      if (!isRecord(body)) {
-        throw new GreenApiError('terminal')
-      }
-
-      return {
-        available: body.available === true,
-        url: stringField(body.urlAvatar),
+        chatId: stringField(body.chatId),
+        chatType: stringField(body.chatType),
+        phoneNumber: phoneField(body.phoneNumber),
+        avatar: stringField(body.avatar),
       }
     },
 
@@ -206,7 +188,7 @@ function normalizeNotification(body: unknown): IncomingNotification | undefined 
   const fields: IncomingNotification = {
     idMessage: stringField(body.idMessage),
     typeWebhook: stringField(body.typeWebhook),
-    chatId: stringField(body.chatId),
+    chatId: senderData ? stringField(senderData.chatId) : stringField(body.chatId),
     outgoingStatus: outgoingStatusField(body.status),
     chatType: senderData ? stringField(senderData.chatType) : undefined,
     senderPhoneNumber: senderData ? phoneField(senderData.senderPhoneNumber) : undefined,

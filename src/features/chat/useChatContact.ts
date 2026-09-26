@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { createGreenApiClient } from '../../api/greenApi'
 import type { GreenApiCredentials } from '../../domain/chat'
 
-type ContactClient = Pick<ReturnType<typeof createGreenApiClient>, 'getContactInfo' | 'getAvatar'>
+type ContactClient = Pick<ReturnType<typeof createGreenApiClient>, 'getContactInfo'>
 
 type UseChatContactOptions = {
   client: ContactClient
@@ -14,6 +14,7 @@ type UseChatContactOptions = {
 export function useChatContact({ client, credentials, phone }: UseChatContactOptions) {
   const [contactName, setContactName] = useState<string>()
   const [avatarUrl, setAvatarUrl] = useState<string>()
+  const [contactChatId, setContactChatId] = useState<string>()
 
   useEffect(() => {
     let ignore = false
@@ -22,17 +23,19 @@ export function useChatContact({ client, credentials, phone }: UseChatContactOpt
 
     setContactName(undefined)
     setAvatarUrl(undefined)
+    setContactChatId(undefined)
 
     void client.getContactInfo(credentials, chatId, controller.signal)
       .then((contact) => {
         const displayName = contact.contactName || contact.name
-        if (!ignore && displayName) setContactName(displayName)
-      })
-      .catch(() => {})
-
-    void client.getAvatar(credentials, chatId, controller.signal)
-      .then((avatar) => {
-        if (!ignore && avatar.available && avatar.url) setAvatarUrl(avatar.url)
+        if (ignore) return
+        if (displayName) setContactName(displayName)
+        if (contact.avatar && isSafeAvatarUrl(contact.avatar)) setAvatarUrl(contact.avatar)
+        if (contact.chatType === 'user'
+          && contact.chatId
+          && (!contact.phoneNumber || contact.phoneNumber === '0' || contact.phoneNumber === phone)) {
+          setContactChatId(contact.chatId)
+        }
       })
       .catch(() => {})
 
@@ -42,5 +45,13 @@ export function useChatContact({ client, credentials, phone }: UseChatContactOpt
     }
   }, [client, credentials, phone])
 
-  return { contactName, avatarUrl, clearAvatar: () => setAvatarUrl(undefined) }
+  return { contactName, avatarUrl, contactChatId, clearAvatar: () => setAvatarUrl(undefined) }
+}
+
+function isSafeAvatarUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === 'https:'
+  } catch {
+    return false
+  }
 }
