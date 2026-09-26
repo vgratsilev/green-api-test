@@ -9,6 +9,8 @@ const credentials = {
 
 const apiUrl = 'https://api.green-api.example'
 const secretUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/sendMessage/${encodeURIComponent(credentials.apiToken)}`
+const contactInfoUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/getContactInfo/${encodeURIComponent(credentials.apiToken)}`
+const avatarUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/getAvatar/${encodeURIComponent(credentials.apiToken)}`
 
 function response(body: unknown, init?: ResponseInit) {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -36,6 +38,46 @@ describe('GREEN-API client', () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ chatId: '79998887766@c.us', message: 'Привет' }),
+      signal: undefined,
+    })
+  })
+
+  it('gets available contact and profile names for a direct chat', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      contactName: 'Василиса Премудрая',
+      name: 'Василиса',
+      ignored: true,
+    }))
+    const client = createGreenApiClient({ apiUrl, fetch })
+
+    await expect(client.getContactInfo(credentials, '79998887766@c.us')).resolves.toEqual({
+      contactName: 'Василиса Премудрая',
+      name: 'Василиса',
+    })
+    expect(fetch).toHaveBeenCalledWith(contactInfoUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chatId: '79998887766@c.us' }),
+      signal: undefined,
+    })
+  })
+
+  it('gets an available avatar URL for a direct chat', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({
+      available: true,
+      urlAvatar: 'https://pps.whatsapp.net/avatar.jpg',
+      base64Avatar: 'ignored',
+    }))
+    const client = createGreenApiClient({ apiUrl, fetch })
+
+    await expect(client.getAvatar(credentials, '79998887766@c.us')).resolves.toEqual({
+      available: true,
+      url: 'https://pps.whatsapp.net/avatar.jpg',
+    })
+    expect(fetch).toHaveBeenCalledWith(avatarUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chatId: '79998887766@c.us' }),
       signal: undefined,
     })
   })
@@ -121,14 +163,18 @@ describe('GREEN-API client', () => {
     )
   })
 
-  it.each(['sendMessage', 'receiveNotification', 'deleteNotification'])(
+  it.each(['getContactInfo', 'getAvatar', 'sendMessage', 'receiveNotification', 'deleteNotification'])(
     'returns a safe error for a non-OK %s response',
     async (method) => {
       const fetch = vi.fn().mockResolvedValue(response('token leaked in body', { status: 401 }))
       const client = createGreenApiClient({ apiUrl, fetch })
 
       const request =
-        method === 'sendMessage'
+        method === 'getContactInfo'
+          ? client.getContactInfo(credentials, '79998887766@c.us')
+          : method === 'getAvatar'
+            ? client.getAvatar(credentials, '79998887766@c.us')
+          : method === 'sendMessage'
           ? client.sendMessage(credentials, '79998887766@c.us', 'Привет')
           : method === 'receiveNotification'
             ? client.receiveNotification(credentials)

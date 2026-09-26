@@ -10,12 +10,18 @@ vi.mock('./api/greenApi', async (importOriginal) => {
 })
 
 const sendMessage = vi.fn()
+const getContactInfo = vi.fn()
+const getAvatar = vi.fn()
 const receiveNotification = vi.fn()
 const deleteNotification = vi.fn()
 
 function arrangeClient() {
+  getContactInfo.mockResolvedValue({})
+  getAvatar.mockResolvedValue({ available: false })
   vi.mocked(createGreenApiClient).mockReturnValue({
     sendMessage,
+    getContactInfo,
+    getAvatar,
     receiveNotification,
     deleteNotification,
   })
@@ -98,6 +104,98 @@ describe('App', () => {
     fireEvent.change(phoneInput, { target: { value: '' } })
 
     expect(phoneInput).toHaveValue('+7')
+  })
+
+  it('shows the contact-book name in the chat header when GREEN-API returns it', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ contactName: 'Василиса Премудрая', name: 'Василиса' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: 'Василиса Премудрая' })).toBeInTheDocument()
+    expect(getContactInfo).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      '79991234567@c.us',
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('shows an available contact avatar', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса' })
+    getAvatar.mockResolvedValue({ available: true, url: 'https://pps.whatsapp.net/avatar.jpg' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    await waitFor(() => expect(screen.getByTestId('chat-avatar')).toHaveAttribute(
+      'src',
+      'https://pps.whatsapp.net/avatar.jpg',
+    ))
+    expect(getAvatar).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      '79991234567@c.us',
+      expect.any(AbortSignal),
+    )
+  })
+
+  it('shows an initial fallback when the contact avatar is unavailable', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса' })
+    getAvatar.mockResolvedValue({ available: false })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByTestId('chat-avatar')).toHaveTextContent('В')
+  })
+
+  it('uses the profile name when the contact is not saved in the phone book', async () => {
+    arrangeClient()
+    getContactInfo.mockResolvedValue({ name: 'Василиса' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: 'Василиса' })).toBeInTheDocument()
+  })
+
+  it('keeps the phone number and lets the user send a message when contact lookup fails', async () => {
+    arrangeClient()
+    getContactInfo.mockRejectedValue(new GreenApiError('retryable'))
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('heading', { name: '+79991234567' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Привет' } })
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled()
   })
 
   it('shows the sending time, a spinner, and double checks after the message is read', async () => {

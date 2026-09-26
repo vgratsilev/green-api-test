@@ -35,7 +35,7 @@ export type DeleteResult = { deleted: boolean }
 export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: ClientOptions) {
   function endpoint(
     credentials: GreenApiCredentials,
-    method: 'sendMessage' | 'receiveNotification' | 'deleteNotification',
+    method: 'sendMessage' | 'getContactInfo' | 'getAvatar' | 'receiveNotification' | 'deleteNotification',
     receiptId?: number,
   ) {
     const path = [
@@ -82,6 +82,50 @@ export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: Clien
   }
 
   return {
+    async getContactInfo(
+      credentials: GreenApiCredentials,
+      chatId: string,
+      signal?: AbortSignal,
+    ) {
+      const body = await request(endpoint(credentials, 'getContactInfo'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chatId }),
+        signal,
+      })
+
+      if (!isRecord(body)) {
+        throw new GreenApiError('terminal')
+      }
+
+      return {
+        contactName: stringField(body.contactName),
+        name: stringField(body.name),
+      }
+    },
+
+    async getAvatar(
+      credentials: GreenApiCredentials,
+      chatId: string,
+      signal?: AbortSignal,
+    ) {
+      const body = await request(endpoint(credentials, 'getAvatar'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chatId }),
+        signal,
+      })
+
+      if (!isRecord(body)) {
+        throw new GreenApiError('terminal')
+      }
+
+      return {
+        available: body.available === true,
+        url: stringField(body.urlAvatar),
+      }
+    },
+
     async sendMessage(
       credentials: GreenApiCredentials,
       chatId: string,
