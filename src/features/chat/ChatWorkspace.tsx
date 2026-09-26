@@ -13,7 +13,7 @@ type ChatWorkspaceProps = {
 }
 
 type IncomingMessage = { id: string; text: string; direction: 'incoming' }
-type OutgoingState = 'sending' | 'delivered' | 'read' | 'failed'
+type OutgoingState = 'sending' | 'queued' | 'delivered' | 'read' | 'failed'
 type OutgoingMessage = { id: string; text: string; direction: 'outgoing'; state: OutgoingState; sentAt: number }
 type Message = IncomingMessage | OutgoingMessage
 
@@ -44,11 +44,10 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
     },
     onOutgoingStatus({ idMessage, status }) {
       setMessages((current) => {
-        const messageIndex = idMessage
-          ? current.findIndex((message) => message.direction === 'outgoing' && message.id === idMessage)
-          : findLastSendingMessage(current)
+        if (!idMessage) return current
+        const messageIndex = current.findIndex((message) => message.direction === 'outgoing' && message.id === idMessage)
         if (messageIndex < 0) {
-          if (idMessage && sendInFlight.current) cachePendingStatus(pendingStatuses.current, idMessage, status)
+          if (sendInFlight.current) cachePendingStatus(pendingStatuses.current, idMessage, status)
           return current
         }
 
@@ -66,12 +65,12 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
   async function sendMessage(text: string, retryId?: string) {
     if (sendInFlight.current) return
 
-    const localId = retryId ?? `sending-${temporaryId.current++}`
+    const localId = `sending-${temporaryId.current++}`
 
     sendInFlight.current = true
     setMessages((current) => retryId
       ? current.map((message) => message.direction === 'outgoing' && message.id === retryId
-        ? { ...message, state: 'sending' }
+        ? { ...message, id: localId, state: 'sending' }
         : message)
       : [...current, { id: localId, text, direction: 'outgoing', state: 'sending', sentAt: Date.now() }])
     setError('')
@@ -81,15 +80,19 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
       const pendingStatus = pendingStatuses.current.get(result.idMessage)
       pendingStatuses.current.clear()
       setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
-        ? { ...message, id: result.idMessage, state: pendingStatus ? stateFromRemoteStatus('sending', pendingStatus) : 'sending' }
+        ? { ...message, id: result.idMessage, state: pendingStatus ? stateFromRemoteStatus('queued', pendingStatus) : 'queued' }
         : message))
-      if (!retryId) setDraft('')
+      if (!retryId) setDraft((current) => current === text ? '' : current)
     } catch {
       pendingStatuses.current.clear()
-      setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
-        ? { ...message, state: 'failed' }
-        : message))
-      setError('Не удалось отправить сообщение. Черновик сохранён; повторите отправку вручную.')
+      setMessages((current) => retryId
+        ? current.map((message) => message.direction === 'outgoing' && message.id === localId
+          ? { ...message, id: retryId, state: 'failed' }
+          : message)
+        : current.filter((message) => message.id !== localId))
+      setError(retryId
+        ? 'Не удалось повторно отправить сообщение. Повторите вручную.'
+        : 'Не удалось отправить сообщение. Черновик сохранён; повторите отправку вручную.')
     } finally {
       sendInFlight.current = false
       setIsSending(false)
@@ -154,6 +157,7 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
 
 function MessageStatus({ message, disabled, onRetry }: { message: OutgoingMessage; disabled: boolean; onRetry: () => void }) {
   if (message.state === 'sending') return <span className="message-status message-status--sending" role="status" aria-label="Отправляется" />
+  if (message.state === 'queued') return <span className="message-status message-status--queued" role="status">В очереди</span>
   if (message.state === 'delivered') return <CheckIcon label="Доставлено" />
   if (message.state === 'read') return <CheckIcon label="Прочитано" double />
   return <button className="message-status message-status--failed" type="button" aria-label="Повторить отправку" title="Повторить отправку" disabled={disabled} onClick={onRetry}>↻</button>
@@ -173,14 +177,6 @@ function stateFromRemoteStatus(current: OutgoingState, status: OutgoingMessageSt
   if (status === 'failed' || status === 'noAccount') return 'failed'
   if (status === 'read') return 'read'
   return 'delivered'
-}
-
-function findLastSendingMessage(messages: Message[]) {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index]
-    if (message.direction === 'outgoing' && message.state === 'sending') return index
-  }
-  return -1
 }
 
 function cachePendingStatus(statuses: Map<string, OutgoingMessageStatus>, idMessage: string, status: OutgoingMessageStatus) {
