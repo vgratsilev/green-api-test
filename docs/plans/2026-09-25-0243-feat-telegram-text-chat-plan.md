@@ -247,7 +247,7 @@ flowchart LR
 
 ### Sequencing
 
-U1 establishes the runtime, test and configuration boundary. U2 makes the remote protocol testable without a live token, then ends with a mandatory real-browser CORS smoke check from the target development origin; U3 and U4 do not begin until readable `GET ReceiveNotification`, JSON `POST SendMessage` and `DELETE DeleteNotification` succeed. U3 adds the visible connection and sending path. U4 attaches the serialized receiving lifecycle to that chat. U5 packages local instructions, Pages delivery and presentation only after the chat paths are verified.
+U1 establishes the runtime, test and configuration boundary. U2 makes the remote protocol testable without a live token, then ends with a mandatory real-browser CORS smoke check from the target development origin; U3 and U4 do not begin until readable `GET ReceiveNotification`, JSON `POST SendMessage` and `DELETE DeleteNotification` succeed. U3 adds the visible connection and sending path. U4 attaches the serialized receiving lifecycle to that chat. U5 packages local instructions and GitHub Pages delivery after the chat paths are verified. U6 creates and reviews the presentation materials against the working UI and published service.
 
 ### System-Wide Impact
 
@@ -356,13 +356,13 @@ U1 establishes the runtime, test and configuration boundary. U2 makes the remote
   - Authentication/configuration errors stop the loop; transient receive errors follow the fixed 1-, 2-, 4-second retry schedule and then stop until explicit user action.
 - **Verification:** Hook and integration tests prove exactly one active consumer, ordering receive → classify → delete → next receive, retry exhaustion/manual resume and correct cleanup behavior.
 
-### U5. Document, publish and present the chat
+### U5. Document and publish the chat
 
-- **Goal:** Дать пользователю воспроизводимый local-start путь, работающую публичную ссылку GitHub Pages и безопасные материалы для демонстрации результата.
-- **Requirements:** R1, R2, R3, R8, R10, R11, R12.
+- **Goal:** Дать пользователю воспроизводимый local-start путь и работающую публичную ссылку GitHub Pages.
+- **Requirements:** R1, R2, R3, R10, R11.
 - **Dependencies:** U1, U2, U3, U4.
-- **Files:** `.github/workflows/deploy-pages.yml`, `vite.config.ts`, `.env.example`, `.gitignore`, `README.md`, `public/demo/connection.png`, `public/demo/active-chat.png`, `public/demo/walkthrough.webm`.
-- **Approach:** Дописать README с prerequisites, exact local commands, объяснением public API-host variable и warning о memory-only credentials. Настроить GitHub Pages Actions workflow на default branch и manual dispatch: `npm ci`, production build с Pages base path, upload `dist`, deploy artifact и output final URL. После deploy выполнить CORS smoke check `ReceiveNotification`, `SendMessage` и `DeleteNotification` из фактического Pages origin с dedicated test instance; только после успешной проверки добавить final URL в README как working service. Добавить два актуальных screenshot и короткий video walkthrough базового чата, демонстрирующие mobile и desktop layout; links ведут на tracked assets или опубликованный Pages URL, а перед commit проходит manual redaction review.
+- **Files:** `.github/workflows/deploy-pages.yml`, `vite.config.ts`, `.env.example`, `.gitignore`, `README.md`.
+- **Approach:** Дописать README с prerequisites, exact local commands, объяснением public API-host variable и warning о memory-only credentials. Настроить GitHub Pages Actions workflow на default branch и manual dispatch: `npm ci`, production build с Pages base path, upload `dist`, deploy artifact и output final URL. После deploy выполнить CORS smoke check `ReceiveNotification`, `SendMessage` и `DeleteNotification` из фактического Pages origin с dedicated test instance; только после успешной проверки добавить final URL в README как working service.
 - **Execution note:** Это configuration and operational unit: сначала выполнить local and production build checks, затем разрешённым владельцем репозитория включить GitHub Pages в Settings и проверить опубликованную ссылку.
 - **Test scenarios:**
   - Чистый checkout следует README через `npm ci`, `.env.example` → ignored `.env.local` и `npm run dev`; credentials вводятся только в форме и не оказываются в tracked configuration.
@@ -370,8 +370,21 @@ U1 establishes the runtime, test and configuration boundary. U2 makes the remote
   - Workflow declares `contents: read`, `pages: write` и `id-token: write`, uploads only `dist` and never reads a token or instance ID from repository variables or secrets.
   - После successful Pages run README содержит фактический output URL, который открывает app shell; ошибку configuration можно увидеть без exposing credentials.
   - После deploy CORS smoke check с final Pages origin разрешает readable `GET ReceiveNotification`, JSON `POST SendMessage` и `DELETE DeleteNotification`; development-origin result не заменяет эту проверку.
-  - Connection and active-chat screenshots, а также every video frame, показывают только test data и masked/empty token field; README links resolve to the committed or published assets.
-- **Verification:** `npm run build` проходит с Pages base path; Actions workflow и опубликованный URL проверяются после push authorised repository owner; final README и presentation assets проходят secret/redaction review.
+- **Verification:** `npm run build` проходит с Pages base path; Actions workflow и опубликованный URL проверяются после push authorised repository owner.
+
+### U6. Capture and publish the chat presentation
+
+- **Goal:** Подготовить безопасные и актуальные скриншоты и короткое видео, демонстрирующие готовый чат на mobile и desktop.
+- **Requirements:** R8, R12, R13.
+- **Dependencies:** U3, U4, U5.
+- **Files:** `README.md`, `public/demo/connection.png`, `public/demo/active-chat.png`, `public/demo/walkthrough.webm`.
+- **Approach:** На проверенном UI записать два актуальных screenshot и короткий video walkthrough базового чата, демонстрирующие connection и active-chat состояния, а также mobile и desktop layout. Хранить assets в `public/demo/` и добавить ссылки на них в README. Использовать только подготовленные test data и masked/empty token field; до commit вручную проверить каждый screenshot и каждый кадр видео на отсутствие instance ID, token, полного request URL, raw payload, Developer Tools и Network panel. После merge/push изменений assets и README в deployment branch дождаться следующего GitHub Pages workflow и проверить ссылки из README с фактического Pages URL.
+- **Test scenarios:**
+  - Connection и active-chat screenshots показывают текущий UI, а walkthrough воспроизводит базовый сценарий без неоговорённых функций.
+  - Материалы вместе демонстрируют usable mobile viewport 320px и desktop viewport 1440px без horizontal page scroll.
+  - Screenshot, каждый video frame и README не содержат instance ID, token, полный request URL, raw response, Developer Tools или Network panel.
+  - README links resolve to the deployed presentation assets from the final GitHub Pages URL, not only to files in the repository.
+- **Verification:** Все assets открываются по ссылкам из README с фактического GitHub Pages URL после workflow, публикующего U6 changes; manual redaction review подтверждает безопасные test data и отсутствие секретов или private traffic во всех кадрах.
 
 ---
 
@@ -379,16 +392,16 @@ U1 establishes the runtime, test and configuration boundary. U2 makes the remote
 
 | Check | Applies to | Evidence |
 | --- | --- | --- |
-| `npm run lint` | U1-U5 | TypeScript and lint checks pass without suppressing credential-related errors. |
+| `npm run lint` | U1-U6 | TypeScript and lint checks pass without suppressing credential-related errors. |
 | `npm run test` | U1-U4 | Unit and component tests cover the client contract, forms, send states and polling lifecycle. |
-| `npm run build` | U1-U5 | The production bundle builds with a public API-host configuration and without credentials in source files. |
+| `npm run build` | U1-U6 | The production bundle builds with a public API-host configuration and without credentials in source files. |
 | Browser CORS smoke check | U2 (hard gate before U3/U4) | A dedicated authorized test instance accepts readable `GET ReceiveNotification`, JSON `POST SendMessage` and `DELETE DeleteNotification` from the target development origin; preflight permits `POST`, `DELETE` and `content-type`. |
 | Pages-origin CORS smoke check | U5 | The same three requests succeed from the actual deployed GitHub Pages origin; a development-origin result is insufficient to claim the public service works. |
 | End-to-end manual chat check | U3-U4 | A tester sends one text to a recipient, receives the reply once, verifies reload clears state, and records no token or full request URL. |
 | Responsive and keyboard check | U3 | At 320px and 1440px, the connection and active-chat flows have no horizontal page scroll; every control is keyboard reachable, visibly focused and has an associated label/error message. |
 | Local-start walkthrough | U1, U5 | A clean checkout follows README to run the app with only a public API-host configuration; local env files and credentials are absent from `git status`. |
 | GitHub Pages publication | U5 | Pages Actions builds and uploads only `dist`, deployment output provides the final URL, and production asset URLs load from its configured base path. |
-| Presentation redaction review | U5 | README screenshots and video links open, show the current UI and contain no instance ID, token, full request URL, raw response or Developer Tools frame. |
+| Presentation redaction review | U6 | README screenshots and video links open, show the current UI and contain no instance ID, token, full request URL, raw response or Developer Tools frame. |
 
 The manual checks use a dedicated instance, account and token supplied by the tester only, with no other tabs, webhooks or consumers. Credentials, raw responses, full endpoint URLs, browser HAR files and Network-panel screenshots must not enter commits, logs or test fixtures.
 
@@ -400,5 +413,6 @@ The manual checks use a dedicated instance, account and token supplied by the te
 - U2 is complete when mocked tests cover all three required GREEN-API methods, exact receive/delete request shape, malformed payloads and safe error handling without a real credential.
 - U3 is complete when the user can open one direct text chat, send a valid message and understand that a successful response means queued; the connection and active-chat flows remain usable at 320px mobile and 1440px desktop widths.
 - U4 is complete when tests prove serialized FIFO acknowledgement, phone-based display filtering, deduplication, malformed-record handling, the 1-/2-/4-second retry schedule with manual resume and Strict Mode-safe effect cleanup; terminal errors offer a return to connection.
-- U5 is complete when README gives a clean local-start path, GitHub Pages publishes the validated `dist` to a working URL, and two screenshots plus a short redacted video presentation are linked from README.
+- U5 is complete when README gives a clean local-start path and GitHub Pages publishes the validated `dist` to a working URL.
+- U6 is complete when two screenshots plus a short redacted video presentation are linked from README, demonstrate the current chat on mobile and desktop, and pass frame-by-frame redaction review.
 - The implementation is complete when the real browser CORS and manual reply checks pass with a prepared dedicated instance from both the development and final Pages origins, reload clears the token, the Pages link and presentation materials are verified, and no diff contains secret values, full request URLs, raw captures or abandoned experiment code.
