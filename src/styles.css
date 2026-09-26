@@ -256,6 +256,7 @@ button:disabled { cursor: not-allowed; opacity: .6; }
 .message-list { display: flex; min-height: 260px; flex-direction: column; gap: 12px; padding: 24px; background: #eef4f7; }
 .empty-state { margin: auto; color: #4c5b65; }
 .message { width: fit-content; max-width: min(86%, 32rem); margin-left: auto; padding: 10px 14px; border-radius: 16px 16px 4px; background: #d9f4d6; overflow-wrap: anywhere; }
+.message--incoming { margin-right: auto; margin-left: 0; border-radius: 16px 16px 16px 4px; background: #fff; }
 .message p { margin: 0; }
 .message span { display: block; margin-top: 4px; color: #477281; font-size: .78rem; text-align: right; }
 .composer { padding: 16px 24px 24px; }

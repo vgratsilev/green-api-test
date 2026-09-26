@@ -29,7 +29,7 @@ export function App({ apiUrl }: AppProps) {
   }
 
   if (connection) {
-    return <main className="app-shell"><ChatWorkspace client={createGreenApiClient({ apiUrl: configuration.apiUrl })} {...connection} /></main>
+    return <main className="app-shell"><ChatWorkspace client={createGreenApiClient({ apiUrl: configuration.apiUrl })} {...connection} onReturnToConnection={() => setConnection(undefined)} /></main>
   }
 
   return (

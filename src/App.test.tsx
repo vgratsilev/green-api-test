@@ -2,19 +2,22 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
-import { createGreenApiClient } from './api/greenApi'
+import { createGreenApiClient, GreenApiError } from './api/greenApi'
 
-vi.mock('./api/greenApi', () => ({
-  createGreenApiClient: vi.fn(),
-}))
+vi.mock('./api/greenApi', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./api/greenApi')>()
+  return { ...actual, createGreenApiClient: vi.fn() }
+})
 
 const sendMessage = vi.fn()
+const receiveNotification = vi.fn()
+const deleteNotification = vi.fn()
 
 function arrangeClient() {
   vi.mocked(createGreenApiClient).mockReturnValue({
     sendMessage,
-    receiveNotification: vi.fn(),
-    deleteNotification: vi.fn(),
+    receiveNotification,
+    deleteNotification,
   })
 }
 
@@ -142,6 +145,82 @@ describe('App', () => {
     expect(screen.queryByText('В очереди')).not.toBeInTheDocument()
     expect(document.body).not.toHaveTextContent('secret')
     expect(document.body).not.toHaveTextContent('https://api.green-api.com/token')
+  })
+
+  it('renders a matching incoming text once and acknowledges its receipt', async () => {
+    arrangeClient()
+    receiveNotification
+      .mockResolvedValueOnce({
+        receiptId: 42,
+        notification: {
+          idMessage: 'incoming-1',
+          typeWebhook: 'incomingMessageReceived',
+          chatType: 'user',
+          senderPhoneNumber: '+7 (999) 123-45-67',
+          typeMessage: 'textMessage',
+          text: '<img src=x onerror=alert(1)>',
+        },
+      })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByText('<img src=x onerror=alert(1)>')).toBeInTheDocument()
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      42,
+      expect.any(AbortSignal),
+    ))
+    expect(document.querySelector('img')).not.toBeInTheDocument()
+  })
+
+  it('does not render a repeated incoming message id twice', async () => {
+    arrangeClient()
+    const notification = {
+      idMessage: 'incoming-1',
+      typeWebhook: 'incomingMessageReceived',
+      chatType: 'user',
+      senderPhoneNumber: '79991234567',
+      typeMessage: 'textMessage',
+      text: 'Не дублируй меня',
+    }
+    receiveNotification
+      .mockResolvedValueOnce({ receiptId: 41, notification })
+      .mockResolvedValueOnce({ receiptId: 42, notification })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
+    expect(screen.getAllByText('Не дублируй меня')).toHaveLength(1)
+  })
+
+  it('returns to the connection form after a terminal polling error', async () => {
+    arrangeClient()
+    receiveNotification.mockRejectedValue(new GreenApiError('terminal'))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Вернуться к подключению' }))
+    expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
+    expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
   })
 
   it('keeps an invalid phone on the form and blocks empty or oversized messages', () => {
