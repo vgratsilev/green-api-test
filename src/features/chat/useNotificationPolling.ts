@@ -32,6 +32,10 @@ type OutgoingStatusNotification = {
 
 const retryDelays = [1_000, 2_000, 4_000]
 
+type InFlightOperation =
+  | { kind: 'receive'; settled: Promise<void> }
+  | { kind: 'delete'; receiptId: number; settled: Promise<boolean | undefined> }
+
 export function useNotificationPolling({
   client,
   credentials,
@@ -43,6 +47,7 @@ export function useNotificationPolling({
   const [status, setStatus] = useState<PollingStatus>('polling')
   const [run, setRun] = useState(0)
   const pendingReceiptRef = useRef<number | undefined>(undefined)
+  const inFlightRef = useRef<InFlightOperation | undefined>(undefined)
   const onIncomingRef = useRef(onIncoming)
   const onOutgoingStatusRef = useRef(onOutgoingStatus)
   onIncomingRef.current = onIncoming
@@ -72,16 +77,34 @@ export function useNotificationPolling({
     const consume = async () => {
       if (!active) return
 
+      const previousOperation = inFlightRef.current
+      if (previousOperation) {
+        const deleted = await previousOperation.settled
+        if (!active) return
+        if (previousOperation.kind === 'delete' && deleted === true
+          && pendingReceiptRef.current === previousOperation.receiptId) {
+          pendingReceiptRef.current = undefined
+        }
+      }
+      if (!active) return
+
       controller = new AbortController()
       try {
         if (pendingReceiptRef.current !== undefined) {
-          const deleted = await client.deleteNotification(credentials, pendingReceiptRef.current, controller.signal)
+          const receiptId = pendingReceiptRef.current
+          const request = client.deleteNotification(credentials, receiptId, controller.signal)
+          inFlightRef.current = { kind: 'delete', receiptId, settled: request.then((result) => result.deleted, () => undefined) }
+          const deleted = await request
+          if (!active) return
           if (!deleted.deleted) {
             throw new GreenApiError('terminal')
           }
           pendingReceiptRef.current = undefined
         } else {
-          const received = await client.receiveNotification(credentials, controller.signal)
+          const request = client.receiveNotification(credentials, controller.signal)
+          inFlightRef.current = { kind: 'receive', settled: request.then(() => {}, () => {}) }
+          const received = await request
+          if (!active) return
           if ('kind' in received) {
             retryCount = 0
             schedule(() => void consume(), 0)

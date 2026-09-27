@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
@@ -499,6 +499,31 @@ describe('App', () => {
     fireEvent.click(returnButton)
     expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
     expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
+  })
+
+  it('does not acknowledge a late notification after leaving the chat', async () => {
+    arrangeClient()
+    let resolveReceive: ((value: { receiptId: number; notification: object }) => void) | undefined
+    receiveNotification.mockImplementation(() => new Promise((resolve) => { resolveReceive = resolve }))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1))
+    fireEvent.click(screen.getByRole('button', { name: 'Вернуться к подключению' }))
+    await act(async () => {
+      resolveReceive?.({ receiptId: 42, notification: {
+        idMessage: 'late-incoming', typeWebhook: 'incomingMessageReceived', chatType: 'user',
+        senderPhoneNumber: '79991234567', typeMessage: 'textMessage', text: 'Поздний ответ',
+      } })
+    })
+
+    expect(deleteNotification).not.toHaveBeenCalled()
+    expect(screen.queryByText('Поздний ответ')).not.toBeInTheDocument()
   })
 
   it('keeps an invalid phone on the form and blocks empty or oversized messages', () => {
