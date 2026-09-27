@@ -29,13 +29,15 @@ Browser-only режим работает, только если GREEN-API раз
 
 Workflow `.github/workflows/deploy-pages.yml` собирает `dist` и публикует его при push в `main` или через **Actions → Deploy GitHub Pages → Run workflow**. Владельцу репозитория перед первым запуском нужно выбрать **Settings → Pages → Build and deployment → GitHub Actions**.
 
+**Публичная версия:** [Telegram text chat](https://vgratsilev.github.io/green-api-test/). Для работы введите ID и API token отдельного авторизованного инстанса с пустым `webhookUrl` и включёнными входящими уведомлениями, затем номер собеседника. Данные доступа вводятся только в форме и исчезают после перезагрузки вкладки.
+
 Во время deploy workflow передаёт Vite repository base path, поэтому локальная разработка остаётся на `/`, а production assets загружаются из `/<repository>/`. Проверить production build можно так:
 
 ```sh
 VITE_BASE_PATH=/green-api-test/ npm run build
 ```
 
-После успешного workflow откройте его deployment output `page_url`: это единственный источник фактической публичной ссылки. Не добавляйте её в README как working service, пока shell приложения не откроется и с final Pages origin не пройдут те же `GET ReceiveNotification`, JSON `POST SendMessage` и `DELETE DeleteNotification` CORS smoke checks. Development-origin проверка не заменяет эту проверку.
+Публичная ссылка подтверждена [успешным Pages deployment](https://github.com/vgratsilev/green-api-test/actions/runs/36306142320). 2026-09-27 страница и её JS/CSS загрузились без 404; из Pages origin тестовое сообщение было отправлено, получило статус «Прочитано», а ответ появился в чате без ошибки polling. Это проверяет рабочий цикл `GET ReceiveNotification`, JSON `POST SendMessage` и `DELETE DeleteNotification` для тестового инстанса. После изменения API host или настроек инстанса повторите CORS smoke check с Pages origin.
 
 ## Quality checks
 
