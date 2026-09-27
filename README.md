@@ -24,6 +24,26 @@
 
 Для проверки потребуется отдельный авторизованный инстанс GREEN-API и номер собеседника. Данные доступа вводятся в форме и исчезают после перезагрузки страницы.
 
+## Скриншоты и видео
+
+### Desktop
+
+| Подключение | Чат без сообщений |
+| --- | --- |
+| <img src="public/demo/desktop-connection.png" alt="Форма подключения на десктопном экране" width="360"> | <img src="public/demo/desktop-active-chat-empty.png" alt="Активный чат без сообщений на десктопном экране" width="360"> |
+| Отправка сообщения | Ответ собеседника |
+| <img src="public/demo/desktop-active-chat-message.png" alt="Активный чат с отправленным сообщением на десктопном экране" width="360"> | <img src="public/demo/desktop-active-chat-answer.png" alt="Активный чат с ответом собеседника на десктопном экране" width="360"> |
+
+### Mobile
+
+| Подключение | Чат без сообщений |
+| --- | --- |
+| <img src="public/demo/mobile-connection.png" alt="Форма подключения на мобильном экране" width="260" height="544"> | <img src="public/demo/mobile-active-chat-empty.png" alt="Активный чат без сообщений на мобильном экране" width="260" height="544"> |
+| Отправка сообщения | Ответ собеседника |
+| <img src="public/demo/mobile-active-chat-message.png" alt="Активный чат с отправленным сообщением на мобильном экране" width="260" height="544"> | <img src="public/demo/mobile-active-chat-answer.png" alt="Активный чат с ответом собеседника на мобильном экране" width="260" height="544"> |
+
+[Короткая видео-презентация сценария](public/demo/walkthrough.webm) показывает переход от подключения к активному чату.
+
 ## Диаграммы
 
 [Диаграммы архитектуры, типов, состояний и последовательностей](docs/diagrams/README.md) показывают поток подключения, отправки и получения сообщений. GitHub рендерит Mermaid-диаграммы прямо в документе.

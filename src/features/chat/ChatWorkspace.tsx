@@ -12,7 +12,7 @@ type ChatWorkspaceProps = {
   onReturnToConnection: () => void
 }
 
-type IncomingMessage = { id: string; text: string; direction: 'incoming' }
+type IncomingMessage = { id: string; text: string; direction: 'incoming'; receivedAt: number }
 type OutgoingState = 'sending' | 'queued' | 'delivered' | 'read' | 'failed'
 type OutgoingMessage = { id: string; text: string; direction: 'outgoing'; state: OutgoingState; sentAt: number }
 type Message = IncomingMessage | OutgoingMessage
@@ -51,7 +51,7 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
           return current
         }
 
-        return [...current, { id: notification.idMessage, text: notification.text, direction: 'incoming' }]
+        return [...current, { id: notification.idMessage, text: notification.text, direction: 'incoming', receivedAt: Date.now() }]
       })
     },
     onOutgoingStatus({ idMessage, status }) {
@@ -144,6 +144,11 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
           <article className={`message message--${message.direction}`} key={message.id}>
             <p>
               {message.text}
+              {message.direction === 'incoming' && (
+                <span className="message-meta">
+                  <time aria-label="Время получения" dateTime={new Date(message.receivedAt).toISOString()}>{formatMessageTime(message.receivedAt)}</time>
+                </span>
+              )}
               {message.direction === 'outgoing' && (
                 <span className="message-meta">
                 <time aria-label="Время отправки" dateTime={new Date(message.sentAt).toISOString()}>{formatMessageTime(message.sentAt)}</time>
