@@ -1,4 +1,4 @@
-import { useRef, useState, type SubmitEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type SubmitEvent } from 'react'
 
 import type { createGreenApiClient } from '../../api/greenApi'
 import type { GreenApiCredentials, IncomingNotification, OutgoingMessageStatus } from '../../domain/chat'
@@ -25,6 +25,18 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
   const temporaryId = useRef(0)
   const pendingStatuses = useRef(new Map<string, OutgoingMessageStatus>())
   const sendInFlight = useRef(false)
+  const messageListRef = useRef<HTMLDivElement>(null)
+  const nearBottom = useRef(true)
+
+  useLayoutEffect(() => {
+    const list = messageListRef.current
+    if (list && nearBottom.current) list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight)
+  }, [messages])
+
+  function trackScroll() {
+    const list = messageListRef.current
+    if (list) nearBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 80
+  }
 
   const { contactName, avatarUrl, contactChatId, clearAvatar } = useChatContact({ client, credentials, phone })
 
@@ -127,7 +139,7 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
           <span>{displayName}</span>
         </h1>
       </header>
-      <div className="message-list" aria-label="Сообщения">
+      <div className="message-list" aria-label="Сообщения" onScroll={trackScroll} ref={messageListRef}>
         {messages.length === 0 ? <p className="empty-state">Сообщений пока нет.</p> : messages.map((message) => (
           <article className={`message message--${message.direction}`} key={message.id}>
             <p>
@@ -142,12 +154,12 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
           </article>
         ))}
       </div>
-      {error && <p className="notice" role="alert">{error}</p>}
+      {error && <p className="notice" id="send-error" role="alert">{error}</p>}
       {pollingStatus === 'retry-exhausted' && <div className="notice" role="alert"><p>Не удалось продолжить получение сообщений.</p><button type="button" onClick={retry}>Повторить polling</button></div>}
       {pollingStatus === 'terminal' && <div className="notice" role="alert"><p>Получение сообщений остановлено. Проверьте подключение.</p><button type="button" onClick={onReturnToConnection}>Вернуться к подключению</button></div>}
       <form className="composer" onSubmit={send}>
         <label htmlFor="message-text">Сообщение</label>
-        <textarea id="message-text" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4097} aria-describedby="message-hint" />
+        <textarea id="message-text" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4097} aria-describedby={error ? 'message-hint send-error' : 'message-hint'} />
         <p id="message-hint" className="hint">До 4096 символов</p>
         <button type="submit" disabled={invalidDraft || isSending}>{isSending ? 'Отправка…' : 'Отправить'}</button>
       </form>

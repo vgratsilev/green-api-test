@@ -15,6 +15,7 @@ function getFlagUrl(country: CountryCode) {
 export function CountryCombobox({ country, onChange }: CountryComboboxProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const comboboxRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
   const selectedCountryOptionRef = useRef<HTMLButtonElement>(null)
   const countries = useMemo(() => getCountries().sort((left, right) => (
     countryNames.of(left)?.localeCompare(countryNames.of(right) ?? '', 'ru') ?? 0
@@ -41,16 +42,18 @@ export function CountryCombobox({ country, onChange }: CountryComboboxProps) {
   function selectCountry(nextCountry: CountryCode) {
     onChange(nextCountry)
     setIsMenuOpen(false)
+    triggerRef.current?.focus()
   }
 
-  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') {
       setIsMenuOpen(false)
+      triggerRef.current?.focus()
     }
   }
 
   return (
-    <div className="country-combobox" ref={comboboxRef}>
+    <div className="country-combobox" onKeyDown={handleKeyDown} ref={comboboxRef}>
       <button
         aria-controls="country-options"
         aria-expanded={isMenuOpen}
@@ -58,7 +61,7 @@ export function CountryCombobox({ country, onChange }: CountryComboboxProps) {
         aria-label="Страна"
         className="country-trigger"
         onClick={() => setIsMenuOpen((isOpen) => !isOpen)}
-        onKeyDown={handleKeyDown}
+        ref={triggerRef}
         role="combobox"
         type="button"
       >

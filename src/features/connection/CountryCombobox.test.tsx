@@ -36,4 +36,18 @@ describe('CountryCombobox', () => {
     fireEvent.pointerDown(document.body)
     expect(combobox).toHaveAttribute('aria-expanded', 'false')
   })
+
+  it('returns focus to the trigger when Escape closes the selected country menu', () => {
+    render(<CountryCombobox country="RU" onChange={vi.fn()} />)
+
+    const combobox = screen.getByRole('combobox', { name: 'Страна' })
+    fireEvent.click(combobox)
+    const selected = screen.getByRole('option', { name: /Россия/ })
+    expect(selected).toHaveFocus()
+
+    fireEvent.keyDown(selected, { key: 'Escape' })
+
+    expect(combobox).toHaveAttribute('aria-expanded', 'false')
+    expect(combobox).toHaveFocus()
+  })
 })

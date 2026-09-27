@@ -325,6 +325,7 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Не удалось отправить'))
     expect(screen.getByLabelText('Сообщение')).toHaveValue('Не теряй меня')
+    expect(screen.getByLabelText('Сообщение')).toHaveAttribute('aria-describedby', 'message-hint send-error')
     expect(within(screen.getByLabelText('Сообщения')).queryByText('Не теряй меня')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Повторить отправку' })).not.toBeInTheDocument()
     expect(sendMessage).toHaveBeenCalledTimes(1)
@@ -436,6 +437,53 @@ describe('App', () => {
       expect.any(AbortSignal),
     ))
     expect(document.querySelector('img')).not.toBeInTheDocument()
+  })
+
+  it('follows new messages only while the reader is near the bottom', async () => {
+    arrangeClient()
+    const receiveResolvers: Array<(result: { receiptId: number; notification: object }) => void> = []
+    receiveNotification.mockImplementation(() => new Promise((resolve) => { receiveResolvers.push(resolve) }))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    const list = screen.getByLabelText('Сообщения')
+    Object.defineProperties(list, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1000 },
+    })
+    const deliver = async (index: number) => {
+      await waitFor(() => expect(receiveResolvers).toHaveLength(index + 1))
+      await act(async () => {
+        receiveResolvers[index]({ receiptId: index + 1, notification: {
+          idMessage: `incoming-${index}`,
+          typeWebhook: 'incomingMessageReceived',
+          chatType: 'user',
+          senderPhoneNumber: '79991234567',
+          typeMessage: 'textMessage',
+          text: `Сообщение ${index}`,
+        } })
+      })
+      expect(await screen.findByText(`Сообщение ${index}`)).toBeInTheDocument()
+    }
+
+    await deliver(0)
+    expect(list.scrollTop).toBe(900)
+
+    list.scrollTop = 300
+    fireEvent.scroll(list)
+    await deliver(1)
+    expect(list.scrollTop).toBe(300)
+
+    list.scrollTop = 850
+    fireEvent.scroll(list)
+    await deliver(2)
+    expect(list.scrollTop).toBe(900)
   })
 
   it('does not render a repeated incoming message id twice', async () => {
