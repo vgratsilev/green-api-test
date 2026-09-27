@@ -45,6 +45,7 @@ describe('App', () => {
     render(<App apiUrl="https://api.green-api.com" />)
 
     expect(screen.getByRole('heading', { name: 'Telegram text chat' })).toBeInTheDocument()
+    expect(screen.getByText('Подключите GREEN-API, чтобы начать переписку в Telegram.')).toBeInTheDocument()
     expect(screen.getByLabelText('ID инстанса')).toHaveValue('')
     expect(screen.getByLabelText('API token инстанса')).toHaveValue('')
     expect(screen.getByRole('combobox', { name: 'Страна' })).toHaveAttribute('aria-expanded', 'false')
@@ -248,6 +249,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Привет' } })
     expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled()
     expect(await screen.findByText('Ответ без lookup')).toBeInTheDocument()
+    expect(screen.getByLabelText('Время получения')).toHaveTextContent(/^\d{2}:\d{2}$/)
   })
 
   it('shows sending, then queued without a status notification, then delivery and read', async () => {

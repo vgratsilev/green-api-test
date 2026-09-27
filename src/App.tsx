@@ -37,10 +37,7 @@ export function App({ apiUrl }: AppProps) {
       <section className="connection-card" aria-labelledby="app-title">
         <p className="eyebrow">GREEN-API demo</p>
         <h1 id="app-title">Telegram text chat</h1>
-        <p className="intro">
-          Подключите отдельный авторизованный инстанс с пустым webhookUrl и включёнными
-          входящими уведомлениями
-        </p>
+        <p className="intro">Подключите GREEN-API, чтобы начать переписку в Telegram.</p>
 
         <ConnectionForm onConnect={(credentials, phone) => setConnection({ credentials, phone })} />
       </section>
