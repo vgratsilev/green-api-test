@@ -1,45 +1,75 @@
 # Telegram text chat
 
-Минимальный React-клиент для одного личного текстового чата через GREEN-API.
+Тестовое задание: React-клиент для одного личного чата в Telegram через [GREEN-API](https://green-api.com/telegram). Приложение позволяет подключить инстанс, открыть чат по номеру телефона, отправлять и получать текстовые сообщения в интерфейсе, стилизованном под Telegram.
 
-## Local start
+## Возможности
 
-Prerequisite: Node.js 20+.
+- Подключение по `idInstance` и `apiTokenInstance`.
+- Создание личного чата по номеру телефона в международном формате.
+- Отправка текстовых сообщений и повторная отправка при ошибке.
+- Получение входящих сообщений через HTTP API GREEN-API.
+- Отображение статусов исходящего сообщения: отправляется, в очереди, доставлено, прочитано или ошибка.
+- Адаптивный интерфейс для мобильных и десктопных экранов.
+
+## Технологии
+
+- React 19, TypeScript и Vite;
+- GREEN-API HTTP API: `SendMessage`, `ReceiveNotification`, `DeleteNotification`, `GetContactInfo`;
+- Vitest и React Testing Library;
+- ESLint.
+
+## Онлайн-демо
+
+[Открыть приложение](https://vgratsilev.github.io/green-api-test/).
+
+Для проверки потребуется отдельный авторизованный инстанс GREEN-API и номер собеседника. Данные доступа вводятся в форме и исчезают после перезагрузки страницы.
+
+## Диаграммы
+
+[Диаграммы архитектуры, типов, состояний и последовательностей](docs/diagrams/README.md) показывают поток подключения, отправки и получения сообщений. GitHub рендерит Mermaid-диаграммы прямо в документе.
+
+## Локальный запуск
+
+Требуется Node.js 20+.
 
 ```sh
 npm ci
 cp .env.example .env.local
 ```
 
-В `.env.local` укажите только публичный HTTPS host из консоли GREEN-API:
+В `.env.local` укажите публичный HTTPS host из консоли GREEN-API:
 
 ```dotenv
 VITE_GREEN_API_URL=https://api.green-api.com
 ```
 
-Не добавляйте в этот файл `idInstance` или API token. Затем выполните `npm run dev`, откройте адрес, показанный Vite (обычно `http://localhost:5173`), и введите ID и token только в форме браузера.
+Не добавляйте в этот файл `idInstance` или API token. Затем запустите приложение:
 
-Перед подключением используйте отдельный авторизованный инстанс: `webhookUrl` должен быть пустым, а входящие уведомления и статусы исходящих сообщений включены (`outgoingWebhook`). Во время demo у HTTP-очереди не должно быть других consumers.
+```sh
+npm run dev
+```
 
-Доступ передаётся в запросах GREEN-API, поэтому ID и token существуют только в памяти вкладки и исчезают после reload. Они не сохраняются в localStorage, URL или исходном коде. `.env.local` игнорируется Git; не публикуйте credentials в `.env`, screenshots или commits.
+Откройте адрес, который покажет Vite (обычно `http://localhost:5173`), и введите ID инстанса, API token и номер получателя.
 
-Browser-only режим работает, только если GREEN-API разрешает CORS для origin приложения. Перед использованием чата проверьте с development origin читаемый `GET ReceiveNotification`, JSON `POST SendMessage` и `DELETE DeleteNotification` на выделенном test instance.
+Используйте отдельный авторизованный инстанс: `webhookUrl` должен быть пустым, а входящие уведомления и статусы исходящих сообщений — включены. У HTTP-очереди не должно быть других consumers.
+
+## Безопасность и CORS
+
+ID инстанса и token нужны для запросов GREEN-API, поэтому они существуют только в памяти вкладки. Приложение не сохраняет их в `localStorage`, URL или исходном коде. Не добавляйте credentials в `.env`, скриншоты или коммиты.
+
+Клиент работает в браузере, поэтому GREEN-API должен разрешать CORS для origin приложения. Перед использованием проверьте на выделенном инстансе запросы `GET ReceiveNotification`, `POST SendMessage` и `DELETE DeleteNotification`.
 
 ## GitHub Pages
 
-Workflow `.github/workflows/deploy-pages.yml` собирает `dist` и публикует его при push в `main` или через **Actions → Deploy GitHub Pages → Run workflow**. Владельцу репозитория перед первым запуском нужно выбрать **Settings → Pages → Build and deployment → GitHub Actions**.
+Workflow [deploy-pages.yml](.github/workflows/deploy-pages.yml) собирает и публикует приложение при push в `main`; его также можно запустить вручную через **Actions → Deploy GitHub Pages → Run workflow**. Перед первым запуском в **Settings → Pages** выберите **GitHub Actions** как источник публикации.
 
-**Публичная версия:** [Telegram text chat](https://vgratsilev.github.io/green-api-test/). Для работы введите ID и API token отдельного авторизованного инстанса с пустым `webhookUrl` и включёнными входящими уведомлениями, затем номер собеседника. Данные доступа вводятся только в форме и исчезают после перезагрузки вкладки.
-
-Во время deploy workflow передаёт Vite repository base path, поэтому локальная разработка остаётся на `/`, а production assets загружаются из `/<repository>/`. Проверить production build можно так:
+Во время публикации workflow задаёт Vite base path репозитория. Локальная разработка остаётся на `/`, а production-сборку можно проверить так:
 
 ```sh
 VITE_BASE_PATH=/green-api-test/ npm run build
 ```
 
-Публичная ссылка подтверждена [успешным Pages deployment](https://github.com/vgratsilev/green-api-test/actions/runs/36306142320). 2026-09-27 страница и её JS/CSS загрузились без 404; из Pages origin тестовое сообщение было отправлено, получило статус «Прочитано», а ответ появился в чате без ошибки polling. Это проверяет рабочий цикл `GET ReceiveNotification`, JSON `POST SendMessage` и `DELETE DeleteNotification` для тестового инстанса. После изменения API host или настроек инстанса повторите CORS smoke check с Pages origin.
-
-## Quality checks
+## Проверки
 
 ```sh
 npm run lint
