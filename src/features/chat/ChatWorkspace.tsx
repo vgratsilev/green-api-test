@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SubmitEvent } from 'react'
 
 import type { createGreenApiClient } from '../../api/greenApi'
-import type { GreenApiCredentials, IncomingNotification, OutgoingMessageStatus } from '../../domain/chat'
+import { MAX_MESSAGE_LENGTH, type GreenApiCredentials, type IncomingNotification, type OutgoingMessageStatus } from '../../domain/chat'
 import { useChatContact } from './useChatContact'
 import { useNotificationPolling } from './useNotificationPolling'
 
@@ -15,18 +15,19 @@ type ChatWorkspaceProps = {
 }
 
 type IncomingMessage = { id: string; text: string; direction: 'incoming'; receivedAt: number }
-type OutgoingState = 'sending' | 'queued' | 'delivered' | 'read' | 'failed'
+type OutgoingState = 'pending' | 'sending' | 'queued' | 'delivered' | 'read' | 'failed'
 type OutgoingMessage = { id: string; text: string; direction: 'outgoing'; state: OutgoingState; sentAt: number }
 export type ChatMessage = IncomingMessage | OutgoingMessage
+type SendJob = { localId: string; text: string; retryId?: string; draftSnapshot?: string }
 
 export function ChatWorkspace({ client, credentials, phone, initialMessages = [], onMessagesChange, onReturnToConnection }: ChatWorkspaceProps) {
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
-  const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState('')
   const temporaryId = useRef(0)
   const pendingStatuses = useRef(new Map<string, OutgoingMessageStatus>())
-  const sendInFlight = useRef(false)
+  const sendQueue = useRef<SendJob[]>([])
+  const sendProcessing = useRef(false)
   const messageListRef = useRef<HTMLDivElement>(null)
   const nearBottom = useRef(true)
 
@@ -58,7 +59,7 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
           return current
         }
 
-        return [...current, { id: notification.idMessage, text: notification.text, direction: 'incoming', receivedAt: Date.now() }]
+        return [...current, { id: notification.idMessage, text: notification.text, direction: 'incoming', receivedAt: notification.timestamp ?? Date.now() }]
       })
     },
     onOutgoingStatus({ idMessage, status }) {
@@ -66,7 +67,7 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
         if (!idMessage) return current
         const messageIndex = current.findIndex((message) => message.direction === 'outgoing' && message.id === idMessage)
         if (messageIndex < 0) {
-          if (sendInFlight.current) cachePendingStatus(pendingStatuses.current, idMessage, status)
+          if (sendProcessing.current) cachePendingStatus(pendingStatuses.current, idMessage, status)
           return current
         }
 
@@ -81,50 +82,72 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
     },
   })
 
-  async function sendMessage(text: string, retryId?: string) {
-    if (sendInFlight.current) return
-
+  function enqueueMessage(text: string, retryId?: string, draftSnapshot?: string) {
     const localId = `sending-${temporaryId.current++}`
-
-    sendInFlight.current = true
     setMessages((current) => retryId
       ? current.map((message) => message.direction === 'outgoing' && message.id === retryId
-        ? { ...message, id: localId, state: 'sending' }
+        ? { ...message, id: localId, state: 'pending' }
         : message)
-      : [...current, { id: localId, text, direction: 'outgoing', state: 'sending', sentAt: Date.now() }])
+      : [...current, { id: localId, text, direction: 'outgoing', state: 'pending', sentAt: Date.now() }])
     setError('')
-    setIsSending(true)
+    sendQueue.current.push({ localId, text, retryId, draftSnapshot })
+    void processSendQueue()
+  }
+
+  async function processSendQueue() {
+    if (sendProcessing.current) return
+    sendProcessing.current = true
+    try {
+      while (sendQueue.current.length > 0) {
+        const job = sendQueue.current.shift()
+        if (job) await sendMessage(job)
+      }
+    } finally {
+      sendProcessing.current = false
+    }
+  }
+
+  async function sendMessage({ localId, text, retryId, draftSnapshot }: SendJob) {
+    setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
+      ? { ...message, state: 'sending' }
+      : message))
     try {
       const result = await client.sendMessage(credentials, `${phone}@c.us`, text)
       const pendingStatus = pendingStatuses.current.get(result.idMessage)
-      pendingStatuses.current.clear()
+      pendingStatuses.current.delete(result.idMessage)
       setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
         ? { ...message, id: result.idMessage, state: pendingStatus ? stateFromRemoteStatus('queued', pendingStatus) : 'queued' }
         : message))
-      if (!retryId) setDraft((current) => current === text ? '' : current)
+      if (draftSnapshot !== undefined) setDraft((current) => current === draftSnapshot ? '' : current)
+      setError('')
     } catch {
-      pendingStatuses.current.clear()
-      setMessages((current) => retryId
-        ? current.map((message) => message.direction === 'outgoing' && message.id === localId
-          ? { ...message, id: retryId, state: 'failed' }
-          : message)
-        : current.filter((message) => message.id !== localId))
+      setMessages((current) => current.map((message) => message.direction === 'outgoing' && message.id === localId
+        ? { ...message, id: retryId ?? localId, state: 'failed' }
+        : message))
       setError(retryId
         ? 'Не удалось повторно отправить сообщение. Повторите вручную.'
         : 'Не удалось отправить сообщение. Черновик сохранён; повторите отправку вручную.')
-    } finally {
-      sendInFlight.current = false
-      setIsSending(false)
     }
+  }
+
+  function submitDraft() {
+    const text = draft.trim()
+    if (!text || draft.length > MAX_MESSAGE_LENGTH || text.length > MAX_MESSAGE_LENGTH) return
+    enqueueMessage(text, undefined, draft)
   }
 
   function send(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!draft.trim() || draft.length > 4096 || isSending) return
-    void sendMessage(draft)
+    submitDraft()
   }
 
-  const invalidDraft = draft.trim().length === 0 || draft.length > 4096
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    submitDraft()
+  }
+
+  const invalidDraft = draft.trim().length === 0 || draft.length > MAX_MESSAGE_LENGTH || draft.trim().length > MAX_MESSAGE_LENGTH
   const displayName = contactName || `+${phone}`
   const avatarInitial = displayName.trim().charAt(0).toLocaleUpperCase('ru-RU') || '?'
 
@@ -159,7 +182,7 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
               {message.direction === 'outgoing' && (
                 <span className="message-meta">
                 <time aria-label="Время отправки" dateTime={new Date(message.sentAt).toISOString()}>{formatMessageTime(message.sentAt)}</time>
-                <MessageStatus message={message} disabled={isSending} onRetry={() => void sendMessage(message.text, message.id)} />
+                <MessageStatus message={message} disabled={message.state === 'sending'} onRetry={() => enqueueMessage(message.text, message.id)} />
                 </span>
               )}
             </p>
@@ -172,15 +195,16 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
       {pollingStatus === 'terminal' && <div className="notice" role="alert"><p>Получение сообщений остановлено. Проверьте подключение.</p><button type="button" onClick={onReturnToConnection}>Вернуться к подключению</button></div>}
       <form className="composer" onSubmit={send}>
         <label htmlFor="message-text">Сообщение</label>
-        <textarea id="message-text" value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={4097} aria-describedby={error ? 'message-hint send-error' : 'message-hint'} />
-        <p id="message-hint" className="hint">До 4096 символов</p>
-        <button type="submit" disabled={invalidDraft || isSending}>{isSending ? 'Отправка…' : 'Отправить'}</button>
+        <textarea id="message-text" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={handleComposerKeyDown} maxLength={MAX_MESSAGE_LENGTH} aria-describedby={error ? 'message-hint send-error' : 'message-hint'} />
+        <p id="message-hint" className="hint">До {MAX_MESSAGE_LENGTH} символов</p>
+        <button type="submit" disabled={invalidDraft}>Отправить</button>
       </form>
     </section>
   )
 }
 
 function MessageStatus({ message, disabled, onRetry }: { message: OutgoingMessage; disabled: boolean; onRetry: () => void }) {
+  if (message.state === 'pending') return <span className="message-status message-status--pending" role="status">Ожидает отправки</span>
   if (message.state === 'sending') return <span className="message-status message-status--sending" role="status" aria-label="Отправляется" />
   if (message.state === 'queued') return <span className="message-status message-status--queued" role="status">В очереди</span>
   if (message.state === 'delivered') return <CheckIcon label="Доставлено" />

@@ -20,6 +20,8 @@ export type IncomingNotification = {
 
 export type OutgoingMessageStatus = 'delivered' | 'read' | 'failed' | 'noAccount'
 
+export const MAX_MESSAGE_LENGTH = 4096
+
 export type ReceivedNotification = {
   receiptId: number
   notification?: IncomingNotification

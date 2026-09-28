@@ -424,10 +424,11 @@ describe('App', () => {
     expect(screen.getByLabelText('Сообщение')).toHaveValue('')
   })
 
-  it('keeps a request failure only in the composer until manual resubmission', async () => {
+  it('keeps a failed message available for a per-message retry', async () => {
     arrangeClient()
     sendMessage
       .mockRejectedValueOnce(new Error('secret https://api.green-api.com/token'))
+      .mockResolvedValueOnce({ idMessage: 'next-message' })
       .mockResolvedValueOnce({ idMessage: 'retried-message' })
 
     render(<App apiUrl="https://api.green-api.com" />)
@@ -439,18 +440,129 @@ describe('App', () => {
     await screen.findByLabelText('Сообщение')
     fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Не теряй меня' } })
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
-
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Не удалось отправить'))
-    expect(screen.getByLabelText('Сообщение')).toHaveValue('Не теряй меня')
-    expect(screen.getByLabelText('Сообщение')).toHaveAttribute('aria-describedby', 'message-hint send-error')
-    expect(within(screen.getByLabelText('Сообщения')).queryByText('Не теряй меня')).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Повторить отправку' })).not.toBeInTheDocument()
-    expect(sendMessage).toHaveBeenCalledTimes(1)
+    fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'Следующее сообщение' } })
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
     await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(within(screen.getByLabelText('Сообщения')).getByText('Следующее сообщение')).toBeInTheDocument())
+    expect(screen.getByLabelText('Сообщение')).toHaveValue('')
     expect(await screen.findByText('В очереди')).toBeInTheDocument()
+    const failedMessage = within(screen.getByLabelText('Сообщения')).getByText('Не теряй меня').closest('article') as HTMLElement
+    fireEvent.click(within(failedMessage).getByRole('button', { name: 'Повторить отправку' }))
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3))
+    expect(sendMessage).toHaveBeenLastCalledWith(expect.anything(), '79991234567@c.us', 'Не теряй меня')
+    expect(await within(screen.getByLabelText('Сообщения')).findAllByText('В очереди')).toHaveLength(2)
     expect(document.body).not.toHaveTextContent('secret')
     expect(document.body).not.toHaveTextContent('https://api.green-api.com/token')
+  })
+
+  it('accepts 4096 characters, trims the sent draft, and handles Enter, Shift+Enter, and IME', async () => {
+    arrangeClient()
+    sendMessage
+      .mockResolvedValueOnce({ idMessage: 'trimmed-message' })
+      .mockResolvedValueOnce({ idMessage: 'trimmed-message-2' })
+    receiveNotification.mockImplementation(() => new Promise(() => {}))
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    const composer = await screen.findByLabelText('Сообщение')
+
+    fireEvent.change(composer, { target: { value: 'x'.repeat(4096) } })
+    expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled()
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' })
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' },
+      '79991234567@c.us',
+      'x'.repeat(4096),
+    ))
+
+    fireEvent.change(composer, { target: { value: '  короткий текст  ' } })
+    fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter' })
+    await waitFor(() => expect(sendMessage).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      '79991234567@c.us',
+      'короткий текст',
+    ))
+
+    fireEvent.change(composer, { target: { value: 'строка 1' } })
+    expect(fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', shiftKey: true })).toBe(true)
+    fireEvent.change(composer, { target: { value: 'строка 1\nстрока 2' } })
+    expect(fireEvent.keyDown(composer, { key: 'Enter', code: 'Enter', isComposing: true })).toBe(true)
+    expect(sendMessage).toHaveBeenCalledTimes(2)
+    expect(composer).toHaveValue('строка 1\nстрока 2')
+  })
+
+  it('queues independent drafts in order and applies an early status to its own message', async () => {
+    arrangeClient()
+    const sendResolvers: Array<(result: { idMessage: string }) => void> = []
+    sendMessage.mockImplementation(() => new Promise((resolve) => { sendResolvers.push(resolve) }))
+    const receiveResolvers: Array<(result: { receiptId: number; notification: object }) => void> = []
+    receiveNotification.mockImplementation(() => new Promise((resolve) => { receiveResolvers.push(resolve) }))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    const composer = await screen.findByLabelText('Сообщение')
+
+    fireEvent.change(composer, { target: { value: 'Первое' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+    fireEvent.change(composer, { target: { value: 'Второе' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1))
+    expect(within(screen.getByLabelText('Сообщения')).getByText('Ожидает отправки')).toBeInTheDocument()
+    expect(composer).toHaveValue('Второе')
+    expect(sendMessage).toHaveBeenNthCalledWith(1, expect.anything(), '79991234567@c.us', 'Первое')
+    sendResolvers[0]({ idMessage: 'first-id' })
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2))
+    expect(sendMessage).toHaveBeenNthCalledWith(2, expect.anything(), '79991234567@c.us', 'Второе')
+
+    await waitFor(() => expect(receiveResolvers.length).toBeGreaterThan(0))
+    await act(async () => {
+      receiveResolvers[0]({ receiptId: 10, notification: {
+        typeWebhook: 'outgoingMessageStatus', chatId: '79991234567', idMessage: 'second-id', outgoingStatus: 'read',
+      } })
+    })
+    sendResolvers[1]({ idMessage: 'second-id' })
+
+    const messages = within(screen.getByLabelText('Сообщения'))
+    expect(await messages.findByLabelText('Прочитано')).toBeInTheDocument()
+    expect(messages.getByText('В очереди')).toBeInTheDocument()
+    expect(messages.getByText('Первое').closest('article')).toHaveTextContent('В очереди')
+    expect(messages.getByText('Второе').closest('article')).toContainElement(messages.getByLabelText('Прочитано'))
+  })
+
+  it('renders the provider timestamp for an incoming backlog message', async () => {
+    arrangeClient()
+    const timestamp = Date.UTC(2026, 0, 2, 3, 4, 0)
+    receiveNotification
+      .mockResolvedValueOnce({ receiptId: 12, notification: {
+        idMessage: 'timed-incoming', typeWebhook: 'incomingMessageReceived', chatType: 'user',
+        senderPhoneNumber: '79991234567', typeMessage: 'textMessage', text: 'Вчерашний ответ',
+        timestamp,
+      } })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+    const message = await screen.findByText('Вчерашний ответ')
+    expect(within(message.closest('article') as HTMLElement).getByLabelText('Время получения'))
+      .toHaveAttribute('dateTime', new Date(timestamp).toISOString())
   })
 
   it('does not attach a status without an id to a queued message', async () => {
