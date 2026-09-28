@@ -5,3 +5,4 @@ dist/
 .env.*.local
 graphify-out/
 .DS_Store
+.DS_store
