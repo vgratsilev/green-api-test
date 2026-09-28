@@ -3,6 +3,8 @@ export type GreenApiCredentials = {
   apiToken: string
 }
 
+export type InstanceState = 'authorized' | 'notAuthorized' | 'blocked' | 'starting' | 'yellowCard' | 'unknown'
+
 export type IncomingNotification = {
   idMessage?: string
   typeWebhook?: string
@@ -12,6 +14,8 @@ export type IncomingNotification = {
   senderPhoneNumber?: string
   typeMessage?: string
   text?: string
+  /** Provider event time, or the local receive time when the provider value is missing or invalid. */
+  timestamp?: number
 }
 
 export type OutgoingMessageStatus = 'delivered' | 'read' | 'failed' | 'noAccount'

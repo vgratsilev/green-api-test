@@ -1,5 +1,6 @@
 import type {
   GreenApiCredentials,
+  InstanceState,
   IncomingNotification,
   OutgoingMessageStatus,
   ReceivedNotification,
@@ -84,8 +85,9 @@ export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: Clien
   return {
     async getStateInstance(credentials: GreenApiCredentials, signal?: AbortSignal) {
       const body = await request(endpoint(credentials, 'getStateInstance'), { method: 'GET', signal })
+      const state = normalizeInstanceState(body)
 
-      return { authorized: isRecord(body) && body.stateInstance === 'authorized' }
+      return { authorized: state === 'authorized', state }
     },
 
     async getContactInfo(
@@ -187,8 +189,8 @@ function normalizeNotification(body: unknown): IncomingNotification | undefined 
 
   const senderData = isRecord(body.senderData) ? body.senderData : undefined
   const messageData = isRecord(body.messageData) ? body.messageData : undefined
-  const textMessageData = messageData && isRecord(messageData.textMessageData)
-    ? messageData.textMessageData
+  const timestamp = body.typeWebhook === 'incomingMessageReceived' && messageData
+    ? providerTimestamp(body.timestamp) ?? Date.now()
     : undefined
 
   const fields: IncomingNotification = {
@@ -199,7 +201,8 @@ function normalizeNotification(body: unknown): IncomingNotification | undefined 
     chatType: senderData ? stringField(senderData.chatType) : undefined,
     senderPhoneNumber: senderData ? phoneField(senderData.senderPhoneNumber) : undefined,
     typeMessage: messageData ? stringField(messageData.typeMessage) : undefined,
-    text: textMessageData ? stringField(textMessageData.textMessage) : undefined,
+    text: messageData ? textField(messageData) : undefined,
+    timestamp,
   }
 
   const notification = Object.fromEntries(
@@ -207,6 +210,50 @@ function normalizeNotification(body: unknown): IncomingNotification | undefined 
   ) as IncomingNotification
 
   return Object.keys(notification).length > 0 ? notification : undefined
+}
+
+function normalizeInstanceState(body: unknown): InstanceState {
+  if (!isRecord(body)) {
+    return 'unknown'
+  }
+
+  switch (body.stateInstance) {
+    case 'authorized':
+    case 'notAuthorized':
+    case 'blocked':
+    case 'starting':
+    case 'yellowCard':
+      return body.stateInstance
+    default:
+      return 'unknown'
+  }
+}
+
+function textField(messageData: Record<string, unknown>): string | undefined {
+  switch (messageData.typeMessage) {
+    case 'textMessage': {
+      const textMessageData = isRecord(messageData.textMessageData) ? messageData.textMessageData : undefined
+      return textMessageData ? stringField(textMessageData.textMessage) : undefined
+    }
+    case 'extendedTextMessage':
+    case 'quotedMessage': {
+      const extendedTextMessageData = isRecord(messageData.extendedTextMessageData)
+        ? messageData.extendedTextMessageData
+        : undefined
+      return extendedTextMessageData ? stringField(extendedTextMessageData.text) : undefined
+    }
+    default:
+      return undefined
+  }
+}
+
+function providerTimestamp(value: unknown): number | undefined {
+  // GREEN-API sends Unix seconds; values with 12 or more digits are milliseconds or malformed data.
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0 || value >= 100_000_000_000) {
+    return undefined
+  }
+
+  return value * 1000
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
