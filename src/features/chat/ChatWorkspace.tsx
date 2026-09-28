@@ -14,7 +14,7 @@ import {
   type IncomingNotification,
   type OutgoingMessageStatus,
 } from '../../domain/chat';
-import { useChatContact } from './useChatContact';
+import { useChatContact, type ChatContactSnapshot } from './useChatContact';
 import { useNotificationPolling } from './useNotificationPolling';
 
 type ChatWorkspaceProps = {
@@ -23,6 +23,8 @@ type ChatWorkspaceProps = {
   phone: string;
   initialMessages?: ChatMessage[];
   onMessagesChange?: (messages: ChatMessage[]) => void;
+  initialContact?: ChatContactSnapshot;
+  onContactChange?: (contact: ChatContactSnapshot) => void;
   onReturnToConnection: () => void;
 };
 
@@ -44,6 +46,8 @@ export function ChatWorkspace({
   phone,
   initialMessages = [],
   onMessagesChange,
+  initialContact,
+  onContactChange,
   onReturnToConnection,
 }: ChatWorkspaceProps) {
   const [draft, setDraft] = useState('');
@@ -78,7 +82,7 @@ export function ChatWorkspace({
     status: contactStatus,
     retry: retryContactLookup,
     clearAvatar,
-  } = useChatContact({ client, credentials, phone });
+  } = useChatContact({ client, credentials, phone, initialContact, onContactChange });
 
   const { status: pollingStatus, retry } = useNotificationPolling({
     client,

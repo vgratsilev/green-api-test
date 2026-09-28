@@ -5,27 +5,44 @@ import type { GreenApiCredentials } from '../../domain/chat';
 
 type ContactClient = Pick<ReturnType<typeof createGreenApiClient>, 'getContactInfo'>;
 
+export type ChatContactSnapshot = {
+  contactName?: string;
+  avatarUrl?: string;
+};
+
 type UseChatContactOptions = {
   client: ContactClient;
   credentials: GreenApiCredentials;
   phone: string;
+  initialContact?: ChatContactSnapshot;
+  onContactChange?: (contact: ChatContactSnapshot) => void;
 };
 
-export function useChatContact({ client, credentials, phone }: UseChatContactOptions) {
+export function useChatContact({
+  client,
+  credentials,
+  phone,
+  initialContact,
+  onContactChange,
+}: UseChatContactOptions) {
   const [contact, setContact] = useState<{
     status: 'loading' | 'resolved' | 'unavailable';
     contactName?: string;
     avatarUrl?: string;
     contactChatId?: string;
-  }>({ status: 'loading' });
+  }>({ status: 'loading', ...initialContact });
   const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    onContactChange?.({ contactName: contact.contactName, avatarUrl: contact.avatarUrl });
+  }, [contact.contactName, contact.avatarUrl, onContactChange]);
 
   useEffect(() => {
     let ignore = false;
     const controller = new AbortController();
     const chatId = `${phone}@c.us`;
 
-    setContact({ status: 'loading' });
+    setContact((current) => ({ ...current, status: 'loading', contactChatId: undefined }));
 
     void client
       .getContactInfo(credentials, chatId, controller.signal)
@@ -46,7 +63,13 @@ export function useChatContact({ client, credentials, phone }: UseChatContactOpt
         });
       })
       .catch(() => {
-        if (!ignore) setContact({ status: 'unavailable' });
+        if (!ignore) {
+          setContact((current) => ({
+            ...current,
+            status: 'unavailable',
+            contactChatId: undefined,
+          }));
+        }
       });
 
     return () => {
