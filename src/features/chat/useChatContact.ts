@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { createGreenApiClient } from '../../api/greenApi'
 import type { GreenApiCredentials } from '../../domain/chat'
@@ -12,40 +12,53 @@ type UseChatContactOptions = {
 }
 
 export function useChatContact({ client, credentials, phone }: UseChatContactOptions) {
-  const [contactName, setContactName] = useState<string>()
-  const [avatarUrl, setAvatarUrl] = useState<string>()
-  const [contactChatId, setContactChatId] = useState<string>()
+  const [contact, setContact] = useState<{
+    status: 'loading' | 'resolved' | 'unavailable'
+    contactName?: string
+    avatarUrl?: string
+    contactChatId?: string
+  }>({ status: 'loading' })
+  const [attempt, setAttempt] = useState(0)
 
   useEffect(() => {
     let ignore = false
     const controller = new AbortController()
     const chatId = `${phone}@c.us`
 
-    setContactName(undefined)
-    setAvatarUrl(undefined)
-    setContactChatId(undefined)
+    setContact({ status: 'loading' })
 
     void client.getContactInfo(credentials, chatId, controller.signal)
       .then((contact) => {
         const displayName = contact.contactName || contact.name
         if (ignore) return
-        if (displayName) setContactName(displayName)
-        if (contact.avatar && isSafeAvatarUrl(contact.avatar)) setAvatarUrl(contact.avatar)
-        if (contact.chatType === 'user'
+        const contactChatId = contact.chatType === 'user'
           && contact.chatId
-          && (!contact.phoneNumber || contact.phoneNumber === '0' || contact.phoneNumber === phone)) {
-          setContactChatId(contact.chatId)
-        }
+          && (!contact.phoneNumber || contact.phoneNumber === '0' || contact.phoneNumber === phone)
+          ? contact.chatId
+          : undefined
+        setContact({
+          status: contactChatId ? 'resolved' : 'unavailable',
+          contactName: displayName,
+          avatarUrl: contact.avatar && isSafeAvatarUrl(contact.avatar) ? contact.avatar : undefined,
+          contactChatId,
+        })
       })
-      .catch(() => {})
+      .catch(() => {
+        if (!ignore) setContact({ status: 'unavailable' })
+      })
 
     return () => {
       ignore = true
       controller.abort()
     }
-  }, [client, credentials, phone])
+  }, [attempt, client, credentials, phone])
 
-  return { contactName, avatarUrl, contactChatId, clearAvatar: () => setAvatarUrl(undefined) }
+  const retry = useCallback(() => setAttempt((current) => current + 1), [])
+  const clearAvatar = useCallback(() => {
+    setContact((current) => ({ ...current, avatarUrl: undefined }))
+  }, [])
+
+  return { ...contact, retry, clearAvatar }
 }
 
 function isSafeAvatarUrl(value: string): boolean {

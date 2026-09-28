@@ -20,6 +20,7 @@ type UseNotificationPollingOptions = {
   client: PollingClient
   credentials: GreenApiCredentials
   phone: string
+  contactStatus?: 'loading' | 'resolved' | 'unavailable'
   contactChatId?: string
   onIncoming: (notification: IncomingNotification) => void
   onOutgoingStatus: (notification: OutgoingStatusNotification) => void
@@ -36,29 +37,39 @@ type InFlightOperation =
   | { kind: 'receive'; settled: Promise<void> }
   | { kind: 'delete'; receiptId: number; settled: Promise<boolean | undefined> }
 
+type PendingReceipt = { receiptId: number; notification?: IncomingNotification; classified: boolean }
+type NotificationClassification =
+  | { kind: 'incoming'; notification: IncomingNotification & { idMessage: string; text: string } }
+  | { kind: 'outgoing'; notification: IncomingNotification & { outgoingStatus: OutgoingMessageStatus } }
+  | { kind: 'ignore' | 'defer' }
+
 export function useNotificationPolling({
   client,
   credentials,
   phone,
+  contactStatus = 'resolved',
   contactChatId,
   onIncoming,
   onOutgoingStatus,
 }: UseNotificationPollingOptions) {
   const [status, setStatus] = useState<PollingStatus>('polling')
   const [run, setRun] = useState(0)
-  const pendingReceiptRef = useRef<number | undefined>(undefined)
+  const pendingReceiptRef = useRef<PendingReceipt | undefined>(undefined)
   const inFlightRef = useRef<InFlightOperation | undefined>(undefined)
   const onIncomingRef = useRef(onIncoming)
   const onOutgoingStatusRef = useRef(onOutgoingStatus)
   onIncomingRef.current = onIncoming
   onOutgoingStatusRef.current = onOutgoingStatus
-  const contactChatIdRef = useRef(contactChatId)
-  contactChatIdRef.current = contactChatId
-
+  const contactRef = useRef({ status: contactStatus, chatId: contactChatId })
+  contactRef.current = { status: contactStatus, chatId: contactChatId }
   const retry = useCallback(() => {
     setStatus('polling')
     setRun((current) => current + 1)
   }, [])
+
+  useEffect(() => {
+    if (pendingReceiptRef.current) setRun((current) => current + 1)
+  }, [contactChatId, contactStatus])
 
   useEffect(() => {
     let active = true
@@ -81,8 +92,8 @@ export function useNotificationPolling({
       if (previousOperation) {
         const deleted = await previousOperation.settled
         if (!active) return
-        if (previousOperation.kind === 'delete' && deleted === true
-          && pendingReceiptRef.current === previousOperation.receiptId) {
+        if (previousOperation.kind === 'delete' && deleted !== undefined
+          && pendingReceiptRef.current?.receiptId === previousOperation.receiptId) {
           pendingReceiptRef.current = undefined
         }
       }
@@ -90,15 +101,31 @@ export function useNotificationPolling({
 
       controller = new AbortController()
       try {
-        if (pendingReceiptRef.current !== undefined) {
-          const receiptId = pendingReceiptRef.current
+        if (pendingReceiptRef.current) {
+          const pendingReceipt = pendingReceiptRef.current
+          if (!pendingReceipt.classified) {
+            const classification = classifyNotification(
+              pendingReceipt.notification,
+              phone,
+              contactRef.current.status,
+              contactRef.current.chatId,
+            )
+            if (classification.kind === 'defer') return
+            if (classification.kind === 'incoming') onIncomingRef.current(classification.notification)
+            if (classification.kind === 'outgoing') {
+              onOutgoingStatusRef.current({
+                idMessage: classification.notification.idMessage,
+                status: classification.notification.outgoingStatus,
+              })
+            }
+            pendingReceipt.classified = true
+          }
+
+          const receiptId = pendingReceipt.receiptId
           const request = client.deleteNotification(credentials, receiptId, controller.signal)
           inFlightRef.current = { kind: 'delete', receiptId, settled: request.then((result) => result.deleted, () => undefined) }
-          const deleted = await request
+          await request
           if (!active) return
-          if (!deleted.deleted) {
-            throw new GreenApiError('terminal')
-          }
           pendingReceiptRef.current = undefined
         } else {
           const request = client.receiveNotification(credentials, controller.signal)
@@ -111,16 +138,7 @@ export function useNotificationPolling({
             return
           }
 
-          if (isMatchingIncomingText(received.notification, phone, contactChatIdRef.current)) {
-            onIncomingRef.current(received.notification)
-          }
-          if (isMatchingOutgoingStatus(received.notification, phone)) {
-            onOutgoingStatusRef.current({
-              idMessage: received.notification.idMessage,
-              status: received.notification.outgoingStatus,
-            })
-          }
-          pendingReceiptRef.current = received.receiptId
+          pendingReceiptRef.current = { receiptId: received.receiptId, notification: received.notification, classified: false }
         }
 
         retryCount = 0
@@ -151,19 +169,39 @@ export function useNotificationPolling({
   return { status, retry }
 }
 
-function isMatchingIncomingText(
+function classifyNotification(
   notification: IncomingNotification | undefined,
   activePhone: string,
+  contactStatus: 'loading' | 'resolved' | 'unavailable',
   contactChatId: string | undefined,
+): NotificationClassification {
+  if (isMatchingOutgoingStatus(notification, activePhone)) return { kind: 'outgoing', notification }
+  if (!isDisplayableIncoming(notification)) return { kind: 'ignore' }
+
+  const isHiddenNumber = notification.senderPhoneNumber === '0'
+  if (isHiddenNumber && !notification.chatId) return { kind: 'ignore' }
+  if (isHiddenNumber && (contactStatus !== 'resolved' || !contactChatId)) return { kind: 'defer' }
+
+  if (isHiddenNumber) {
+    if (notification.chatId !== contactChatId) return { kind: 'ignore' }
+  } else {
+    if (normalizePhone(notification.senderPhoneNumber) !== normalizePhone(activePhone)) return { kind: 'ignore' }
+    if (contactChatId !== undefined && notification.chatId !== undefined && notification.chatId !== contactChatId) {
+      return { kind: 'ignore' }
+    }
+  }
+
+  return { kind: 'incoming', notification }
+}
+
+function isDisplayableIncoming(
+  notification: IncomingNotification | undefined,
 ): notification is IncomingNotification & { idMessage: string; text: string } {
-  return notification?.chatType === 'user'
-    && notification.typeWebhook === 'incomingMessageReceived'
+  return notification?.typeWebhook === 'incomingMessageReceived'
+    && notification.chatType === 'user'
     && notification.typeMessage === 'textMessage'
     && typeof notification.idMessage === 'string'
     && typeof notification.text === 'string'
-    && (contactChatId === undefined || notification.chatId === undefined || notification.chatId === contactChatId)
-    && (normalizePhone(notification.senderPhoneNumber) === normalizePhone(activePhone)
-      || (notification.senderPhoneNumber === '0' && contactChatId !== undefined && notification.chatId === contactChatId))
 }
 
 function isMatchingOutgoingStatus(

@@ -91,6 +91,95 @@ describe('useNotificationPolling', () => {
     expect(onIncoming).toHaveBeenCalledWith(incoming({ idMessage: 'matching', senderPhoneNumber: '0', chatId: '10000000' }))
   })
 
+  it('defers a hidden-number receipt until contact identity is resolved', async () => {
+    const receiveNotification = vi.fn()
+      .mockResolvedValueOnce({ receiptId: 19, notification: incoming({ senderPhoneNumber: '0', chatId: '10000000' }) })
+      .mockImplementation(() => new Promise(() => {}))
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
+    const onIncoming = vi.fn()
+    const client = { receiveNotification, deleteNotification }
+    const { rerender } = renderHook(({ contactStatus, contactChatId }) => useNotificationPolling({
+      client,
+      credentials,
+      phone: '79991234567',
+      contactStatus,
+      contactChatId,
+      onIncoming,
+      onOutgoingStatus: vi.fn(),
+    }), { initialProps: { contactStatus: 'loading', contactChatId: undefined } as {
+      contactStatus: 'loading' | 'resolved'
+      contactChatId?: string
+    } })
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1))
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
+    expect(deleteNotification).not.toHaveBeenCalled()
+    expect(receiveNotification).toHaveBeenCalledTimes(1)
+    expect(onIncoming).not.toHaveBeenCalled()
+
+    rerender({ contactStatus: 'resolved', contactChatId: '10000000' })
+    await waitFor(() => expect(onIncoming).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(credentials, 19, expect.any(AbortSignal)))
+    expect(receiveNotification).toHaveBeenCalledTimes(2)
+  })
+
+  it('acknowledges malformed hidden-number receipts while identity is unresolved', async () => {
+    const receiveNotification = vi.fn()
+      .mockResolvedValueOnce({ receiptId: 20, notification: incoming({ senderPhoneNumber: '0', idMessage: undefined, text: undefined }) })
+      .mockImplementation(() => new Promise(() => {}))
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
+
+    renderHook(() => useNotificationPolling({
+      client: { receiveNotification, deleteNotification },
+      credentials,
+      phone: '79991234567',
+      contactStatus: 'loading',
+      onIncoming: vi.fn(),
+      onOutgoingStatus: vi.fn(),
+    }))
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
+    expect(deleteNotification).toHaveBeenCalledTimes(1)
+    expect(deleteNotification).toHaveBeenCalledWith(credentials, 20, expect.any(AbortSignal))
+  })
+
+  it('acknowledges hidden-number receipts without a chat id', async () => {
+    const receiveNotification = vi.fn()
+      .mockResolvedValueOnce({ receiptId: 22, notification: incoming({ senderPhoneNumber: '0', chatId: undefined }) })
+      .mockImplementation(() => new Promise(() => {}))
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
+
+    renderHook(() => useNotificationPolling({
+      client: { receiveNotification, deleteNotification },
+      credentials,
+      phone: '79991234567',
+      contactStatus: 'loading',
+      onIncoming: vi.fn(),
+      onOutgoingStatus: vi.fn(),
+    }))
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
+    expect(deleteNotification).toHaveBeenCalledWith(credentials, 22, expect.any(AbortSignal))
+  })
+
+  it('continues when delete reports that the receipt was already processed', async () => {
+    const receiveNotification = vi.fn()
+      .mockResolvedValueOnce({ receiptId: 21, notification: incoming() })
+      .mockImplementation(() => new Promise(() => {}))
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: false })
+    const { result } = renderHook(() => useNotificationPolling({
+      client: { receiveNotification, deleteNotification },
+      credentials,
+      phone: '79991234567',
+      onIncoming: vi.fn(),
+      onOutgoingStatus: vi.fn(),
+    }))
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
+    expect(deleteNotification).toHaveBeenCalledTimes(1)
+    expect(result.current.status).toBe('polling')
+  })
+
   it('ignores a late receive from a stopped run before starting one consumer', async () => {
     let resolveOldReceive: ((value: { receiptId: number; notification: IncomingNotification }) => void) | undefined
     const receiveNotification = vi.fn()

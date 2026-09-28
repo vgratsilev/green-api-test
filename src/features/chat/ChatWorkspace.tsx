@@ -44,12 +44,13 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
     if (list) nearBottom.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 80
   }
 
-  const { contactName, avatarUrl, contactChatId, clearAvatar } = useChatContact({ client, credentials, phone })
+  const { contactName, avatarUrl, contactChatId, status: contactStatus, retry: retryContactLookup, clearAvatar } = useChatContact({ client, credentials, phone })
 
   const { status: pollingStatus, retry } = useNotificationPolling({
     client,
     credentials,
     phone,
+    contactStatus,
     contactChatId,
     onIncoming(notification: IncomingNotification) {
       setMessages((current) => {
@@ -166,6 +167,7 @@ export function ChatWorkspace({ client, credentials, phone, initialMessages = []
         ))}
       </div>
       {error && <p className="notice" id="send-error" role="alert">{error}</p>}
+      {contactStatus === 'unavailable' && <div className="notice" role="status" aria-live="polite"><p>Не удалось подтвердить контакт. Сообщения со скрытым номером удерживаются в очереди.</p><button type="button" onClick={retryContactLookup}>Повторить поиск контакта</button></div>}
       {pollingStatus === 'retry-exhausted' && <div className="notice" role="alert"><p>Не удалось продолжить получение сообщений.</p><button type="button" onClick={retry}>Повторить polling</button></div>}
       {pollingStatus === 'terminal' && <div className="notice" role="alert"><p>Получение сообщений остановлено. Проверьте подключение.</p><button type="button" onClick={onReturnToConnection}>Вернуться к подключению</button></div>}
       <form className="composer" onSubmit={send}>

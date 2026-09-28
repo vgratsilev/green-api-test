@@ -331,6 +331,41 @@ describe('App', () => {
     expect(screen.getByLabelText('Время получения')).toHaveTextContent(/^\d{2}:\d{2}$/)
   })
 
+  it('holds a hidden-number receipt after lookup failure and resumes it after retry', async () => {
+    arrangeClient()
+    getContactInfo
+      .mockRejectedValueOnce(new GreenApiError('retryable'))
+      .mockResolvedValueOnce({ name: 'Василиса', chatId: '10000000', chatType: 'user', phoneNumber: '79991234567' })
+    receiveNotification
+      .mockResolvedValueOnce({ receiptId: 61, notification: {
+        idMessage: 'hidden-after-retry', typeWebhook: 'incomingMessageReceived',
+        chatId: '10000000', chatType: 'user', senderPhoneNumber: '0',
+        typeMessage: 'textMessage', text: 'Сообщение после восстановления',
+      } })
+      .mockImplementation(() => new Promise(() => {}))
+    deleteNotification.mockResolvedValue({ deleted: true })
+
+    render(<App apiUrl="https://api.green-api.com" />)
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'secret' } })
+    chooseCountry('RU')
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(await screen.findByRole('button', { name: 'Повторить поиск контакта' })).toBeInTheDocument()
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1))
+    expect(deleteNotification).not.toHaveBeenCalled()
+    expect(screen.queryByText('Сообщение после восстановления')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить поиск контакта' }))
+
+    expect(await screen.findByText('Сообщение после восстановления')).toBeInTheDocument()
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(
+      { instanceId: '123', apiToken: 'secret' }, 61, expect.any(AbortSignal),
+    ))
+    expect(getContactInfo).toHaveBeenCalledTimes(2)
+  })
+
   it('shows sending, then queued without a status notification, then delivery and read', async () => {
     arrangeClient()
     let resolveSend: ((result: { idMessage: string }) => void) | undefined
