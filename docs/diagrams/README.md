@@ -9,8 +9,10 @@ flowchart LR
   User[Пользователь] --> App[App]
   App --> Runtime[getRuntimeConfig]
   App --> Form[ConnectionForm]
+  Runtime -->|default public API origin| Form
   Form --> Country[CountryCombobox]
-  Form -->|credentials + phone| Workspace[ChatWorkspace]
+  Form -->|API origin + credentials + phone| App
+  App -->|confirmed connection| Workspace[ChatWorkspace]
 
   Workspace --> Contact[useChatContact]
   Workspace --> Polling[useNotificationPolling]
@@ -19,11 +21,10 @@ flowchart LR
   Polling --> Client
   Client --> API[GREEN-API HTTP API]
   API <--> Telegram[Telegram]
-
-  Runtime --> Env[VITE_GREEN_API_URL]
+  App -->|creates client with API origin| Client
 ```
 
-`App` сохраняет credentials и номер только в состоянии вкладки. В переменной окружения находится лишь публичный HTTPS host API; credentials не записываются в URL, localStorage или репозиторий.
+`ConnectionForm` принимает точный публичный HTTPS API origin из консоли инстанса. `App` сохраняет origin, credentials и номер только в состоянии вкладки после успешного preflight через `getStateInstance`; значения не записываются в URL, localStorage, environment variables или репозиторий. Приложение поддерживает один активный личный текстовый чат.
 
 ## 2. Диаграмма классов и типов
 

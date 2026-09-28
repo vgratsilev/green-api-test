@@ -40,7 +40,6 @@ function chooseCountry(country: string) {
 
 describe('App', () => {
   afterEach(() => {
-    vi.unstubAllEnvs()
     vi.clearAllMocks()
   })
 
@@ -54,9 +53,7 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: 'Страна' })).toHaveAttribute('aria-expanded', 'false')
   })
 
-  it('uses the documented host when no build-time configuration is available', () => {
-    vi.stubEnv('VITE_GREEN_API_URL', undefined)
-
+  it('uses the default API origin when none is supplied', () => {
     render(<App />)
 
     expect(screen.getByLabelText('API origin GREEN-API')).toHaveValue('https://api.green-api.com')
