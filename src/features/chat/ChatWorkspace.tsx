@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type SubmitEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type SubmitEvent } from 'react'
 
 import type { createGreenApiClient } from '../../api/greenApi'
 import type { GreenApiCredentials, IncomingNotification, OutgoingMessageStatus } from '../../domain/chat'
@@ -9,17 +9,19 @@ type ChatWorkspaceProps = {
   client: ReturnType<typeof createGreenApiClient>
   credentials: GreenApiCredentials
   phone: string
+  initialMessages?: ChatMessage[]
+  onMessagesChange?: (messages: ChatMessage[]) => void
   onReturnToConnection: () => void
 }
 
 type IncomingMessage = { id: string; text: string; direction: 'incoming'; receivedAt: number }
 type OutgoingState = 'sending' | 'queued' | 'delivered' | 'read' | 'failed'
 type OutgoingMessage = { id: string; text: string; direction: 'outgoing'; state: OutgoingState; sentAt: number }
-type Message = IncomingMessage | OutgoingMessage
+export type ChatMessage = IncomingMessage | OutgoingMessage
 
-export function ChatWorkspace({ client, credentials, phone, onReturnToConnection }: ChatWorkspaceProps) {
+export function ChatWorkspace({ client, credentials, phone, initialMessages = [], onMessagesChange, onReturnToConnection }: ChatWorkspaceProps) {
   const [draft, setDraft] = useState('')
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [isSending, setIsSending] = useState(false)
   const [error, setError] = useState('')
   const temporaryId = useRef(0)
@@ -27,6 +29,10 @@ export function ChatWorkspace({ client, credentials, phone, onReturnToConnection
   const sendInFlight = useRef(false)
   const messageListRef = useRef<HTMLDivElement>(null)
   const nearBottom = useRef(true)
+
+  useEffect(() => {
+    onMessagesChange?.(messages)
+  }, [messages, onMessagesChange])
 
   useLayoutEffect(() => {
     const list = messageListRef.current

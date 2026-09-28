@@ -16,6 +16,18 @@ describe('ConnectionForm', () => {
     )
   })
 
+  it('treats a plausible digits-only value as an international phone number', () => {
+    render(<ConnectionForm onConnect={vi.fn()} />)
+
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '79001234567' } })
+
+    expect(screen.getByLabelText('Номер получателя')).toHaveValue('+7 900 123 45 67')
+    expect(screen.getByRole('combobox', { name: 'Страна' }).querySelector('img')).toHaveAttribute(
+      'src',
+      'https://flagcdn.com/w40/ru.png',
+    )
+  })
+
   it('clears the international-format error when the recipient number is corrected', () => {
     render(<ConnectionForm onConnect={vi.fn()} />)
 
@@ -30,5 +42,19 @@ describe('ConnectionForm', () => {
     fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps an invalid API origin on the form without starting a connection', () => {
+    const onConnect = vi.fn()
+    render(<ConnectionForm onConnect={onConnect} />)
+
+    fireEvent.change(screen.getByLabelText('API origin GREEN-API'), { target: { value: 'http://api.green-api.com/path' } })
+    fireEvent.change(screen.getByLabelText('ID инстанса'), { target: { value: '123' } })
+    fireEvent.change(screen.getByLabelText('API token инстанса'), { target: { value: 'token' } })
+    fireEvent.change(screen.getByLabelText('Номер получателя'), { target: { value: '+79991234567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат' }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('публичный HTTPS origin')
+    expect(onConnect).not.toHaveBeenCalled()
   })
 })

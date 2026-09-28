@@ -10,6 +10,7 @@ const credentials = {
 const apiUrl = 'https://api.green-api.example'
 const secretUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/sendMessage/${encodeURIComponent(credentials.apiToken)}`
 const contactInfoUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/getContactInfo/${encodeURIComponent(credentials.apiToken)}`
+const stateUrl = `${apiUrl}/waInstance${encodeURIComponent(credentials.instanceId)}/getStateInstance/${encodeURIComponent(credentials.apiToken)}`
 
 function response(body: unknown, init?: ResponseInit) {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
@@ -26,6 +27,28 @@ function expectSafeError(error: GreenApiError) {
 }
 
 describe('GREEN-API client', () => {
+  it('accepts only the authorized state without exposing the raw response', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ stateInstance: 'authorized' }))
+    const client = createGreenApiClient({ apiUrl, fetch })
+
+    await expect(client.getStateInstance(credentials)).resolves.toEqual({ authorized: true })
+    expect(fetch).toHaveBeenCalledWith(stateUrl, { method: 'GET', signal: undefined })
+  })
+
+  it.each([
+    { stateInstance: 'notAuthorized' },
+    { stateInstance: 'blocked' },
+    { stateInstance: 'starting' },
+    { stateInstance: 'yellowCard' },
+    {},
+    { stateInstance: 42 },
+  ])('rejects unavailable or malformed instance state safely: %o', async (body) => {
+    const fetch = vi.fn().mockResolvedValue(response(body))
+    const client = createGreenApiClient({ apiUrl, fetch })
+
+    await expect(client.getStateInstance(credentials)).resolves.toEqual({ authorized: false })
+  })
+
   it('sends a JSON message and returns its queued id', async () => {
     const fetch = vi.fn().mockResolvedValue(response({ idMessage: 'message-1' }))
     const client = createGreenApiClient({ apiUrl, fetch })

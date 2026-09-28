@@ -1,26 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { getRuntimeConfig } from './runtime'
+import { getRuntimeConfig, normalizeApiUrl } from './runtime'
 
 describe('getRuntimeConfig', () => {
   afterEach(() => {
     vi.unstubAllEnvs()
   })
 
-  it('returns the public HTTPS GREEN-API URL', () => {
-    expect(getRuntimeConfig('https://api.green-api.com')).toEqual({
-      apiUrl: 'https://api.green-api.com',
-    })
+  it('provides the documented public GREEN-API origin as a form default', () => {
+    expect(getRuntimeConfig()).toEqual({ defaultApiUrl: 'https://api.green-api.com' })
   })
 
-  it('rejects a missing or non-HTTPS URL without using credentials', () => {
-    vi.stubEnv('VITE_GREEN_API_URL', undefined)
+  it.each([
+    ['https://4100.api.green-api.com/', 'https://4100.api.green-api.com'],
+    ['https://api.green-api.com', 'https://api.green-api.com'],
+  ])('normalizes a public HTTPS origin: %s', (value, expected) => {
+    expect(normalizeApiUrl(value)).toBe(expected)
+  })
 
-    expect(getRuntimeConfig()).toEqual({
-      error: 'Укажите публичный HTTPS-адрес API GREEN-API в VITE_GREEN_API_URL.',
-    })
-    expect(getRuntimeConfig('http://api.green-api.com')).toEqual({
-      error: 'Укажите публичный HTTPS-адрес API GREEN-API в VITE_GREEN_API_URL.',
-    })
+  it.each([
+    '',
+    'http://api.green-api.com',
+    'https://user:password@api.green-api.com',
+    'https://api.green-api.com/path',
+    'https://api.green-api.com?query=value',
+    'not a URL',
+  ])('rejects an invalid API origin: %s', (value) => {
+    expect(normalizeApiUrl(value)).toBeUndefined()
   })
 })

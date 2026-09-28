@@ -35,7 +35,7 @@ export type DeleteResult = { deleted: boolean }
 export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: ClientOptions) {
   function endpoint(
     credentials: GreenApiCredentials,
-    method: 'sendMessage' | 'getContactInfo' | 'receiveNotification' | 'deleteNotification',
+    method: 'getStateInstance' | 'sendMessage' | 'getContactInfo' | 'receiveNotification' | 'deleteNotification',
     receiptId?: number,
   ) {
     const path = [
@@ -82,6 +82,12 @@ export function createGreenApiClient({ apiUrl, fetch = globalThis.fetch }: Clien
   }
 
   return {
+    async getStateInstance(credentials: GreenApiCredentials, signal?: AbortSignal) {
+      const body = await request(endpoint(credentials, 'getStateInstance'), { method: 'GET', signal })
+
+      return { authorized: isRecord(body) && body.stateInstance === 'authorized' }
+    },
+
     async getContactInfo(
       credentials: GreenApiCredentials,
       chatId: string,
