@@ -1,99 +1,77 @@
 # Telegram text chat
 
-Тестовое задание: React-клиент для одного личного чата в Telegram через [GREEN-API](https://green-api.com/telegram). Приложение позволяет подключить инстанс, открыть чат по номеру телефона, отправлять и получать текстовые сообщения в интерфейсе, стилизованном под Telegram.
+Тестовое задание: клиент на React для одного активного личного текстового чата в Telegram через [GREEN-API](https://green-api.com/telegram). Отдельного бэкенда нет: приложение отправляет запросы к GREEN-API прямо из браузера. Можно подключить инстанс, открыть чат по номеру телефона и отправлять и получать сообщения. Список чатов, группы и медиа не поддерживаются.
 
 ## Возможности
 
-- Подключение по `idInstance` и `apiTokenInstance`.
-- Создание личного чата по номеру телефона в международном формате.
-- Отправка текстовых сообщений и повторная отправка при ошибке.
-- Получение входящих сообщений через HTTP API GREEN-API.
-- Отображение статусов исходящего сообщения: отправляется, в очереди, доставлено, прочитано или ошибка.
+- Подключение с проверкой авторизации инстанса по `idInstance` и `apiTokenInstance`.
+- Открытие личного чата по номеру в международном формате; отображение имени и аватара контакта.
+- Отправка и повторная отправка текстовых сообщений.
+- Получение входящих сообщений и статусов отправки: ожидает отправки, отправляется, в очереди, доставлено, прочитано или ошибка.
 - Адаптивный интерфейс для мобильных и десктопных экранов.
 
 ## Технологии
 
 - React 19, TypeScript и Vite;
-- GREEN-API HTTP API: `SendMessage`, `ReceiveNotification`, `DeleteNotification`, `GetContactInfo`;
-- Vitest и React Testing Library;
-- ESLint.
+- GREEN-API HTTP API: `GetStateInstance`, `GetContactInfo`, `SendMessage`, `ReceiveNotification`, `DeleteNotification`;
+- Vitest, React Testing Library, ESLint и Prettier.
 
 ## Онлайн-демо
 
 [Открыть приложение](https://vgratsilev.github.io/green-api-test/).
 
-Для проверки потребуется отдельный авторизованный инстанс GREEN-API и номер собеседника. Данные доступа вводятся в форме и исчезают после перезагрузки страницы.
+Для проверки нужны авторизованный инстанс GREEN-API и номер собеседника. API origin, данные доступа и номер вводятся в форме и хранятся только в памяти вкладки. После перезагрузки страницы подключение нужно выполнить заново.
 
 ## Скриншоты и видео
 
 ### Desktop
 
-| Подключение | Чат без сообщений |
-| --- | --- |
-| <img src="public/demo/desktop-connection.png" alt="Форма подключения на десктопном экране" width="360"> | <img src="public/demo/desktop-active-chat-empty.png" alt="Активный чат без сообщений на десктопном экране" width="360"> |
-| Отправка сообщения | Ответ собеседника |
-| <img src="public/demo/desktop-active-chat-message.png" alt="Активный чат с отправленным сообщением на десктопном экране" width="360"> | <img src="public/demo/desktop-active-chat-answer.png" alt="Активный чат с ответом собеседника на десктопном экране" width="360"> |
+<p>
+  <img src="public/demo/desktop-connection.png" alt="Форма подключения на компьютере" width="360">
+  <img src="public/demo/desktop-active-chat-answer.png" alt="Чат с отправленным сообщением и ответом на компьютере" width="360">
+</p>
 
 ### Mobile
 
-| Подключение | Чат без сообщений |
-| --- | --- |
-| <img src="public/demo/mobile-connection.png" alt="Форма подключения на мобильном экране" width="260" height="544"> | <img src="public/demo/mobile-active-chat-empty.png" alt="Активный чат без сообщений на мобильном экране" width="260" height="544"> |
-| Отправка сообщения | Ответ собеседника |
-| <img src="public/demo/mobile-active-chat-message.png" alt="Активный чат с отправленным сообщением на мобильном экране" width="260" height="544"> | <img src="public/demo/mobile-active-chat-answer.png" alt="Активный чат с ответом собеседника на мобильном экране" width="260" height="544"> |
+<p>
+  <img src="public/demo/mobile-connection.png" alt="Форма подключения на телефоне" width="260">
+  <img src="public/demo/mobile-active-chat-answer.png" alt="Чат с сообщениями на телефоне" width="260">
+</p>
 
-[Короткая видео-презентация сценария](public/demo/walkthrough.webm) показывает отправку и получение сообщений.
+Короткий сценарий работы показан в [видео](public/demo/walkthrough.webm).
 
 ## Диаграммы
 
-[Диаграммы архитектуры, типов, состояний и последовательностей](docs/diagrams/README.md) показывают поток подключения, отправки и получения сообщений.
+[Диаграммы архитектуры, типов, состояний и последовательностей](docs/diagrams/README.md) показывают подключение, отправку и получение сообщений.
 
 ## Локальный запуск
 
-Требуется Node.js 20+.
+Требуется Node.js 20.19+ или 22.12+ (версии, поддерживаемые Vite 7).
 
 ```sh
 npm ci
-cp .env.example .env.local
-```
-
-В `.env.local` укажите публичный HTTPS host из консоли GREEN-API:
-
-```dotenv
-VITE_GREEN_API_URL=https://api.green-api.com
-```
-
-Не добавляйте в этот файл `idInstance` или API token. Затем запустите приложение:
-
-```sh
 npm run dev
 ```
 
-Откройте адрес, который покажет Vite (обычно `http://localhost:5173`), и введите ID инстанса, API token и номер получателя.
+Откройте адрес, который покажет Vite (обычно `http://localhost:5173`). В форме укажите публичный HTTPS API origin инстанса — точный адрес из консоли GREEN-API, без пути, параметров запроса и данных доступа — а также ID инстанса, API token и номер собеседника.
 
-Используйте отдельный авторизованный инстанс: `webhookUrl` должен быть пустым, а входящие уведомления и статусы исходящих сообщений — включены. У HTTP-очереди не должно быть других consumers.
+Используйте отдельный авторизованный инстанс с пустым `webhookUrl` и включёнными уведомлениями о входящих сообщениях и статусах отправки. Не запускайте другие клиенты, которые читают ту же HTTP-очередь уведомлений.
 
 ## Безопасность и CORS
 
-ID инстанса и token нужны для запросов GREEN-API, поэтому они существуют только в памяти вкладки. Приложение не сохраняет их в `localStorage`, URL или исходном коде.
+Приложение не сохраняет API origin, ID инстанса и token в `localStorage`, URL или исходном коде. Не помещайте данные доступа в `.env` или публичную конфигурацию сборки.
 
-Клиент работает в браузере, поэтому GREEN-API должен разрешать CORS для origin приложения. Перед использованием проверьте на выделенном инстансе запросы `GET ReceiveNotification`, `POST SendMessage` и `DELETE DeleteNotification`.
+GREEN-API должен разрешать CORS для origin приложения — `localhost` при локальном запуске или домена GitHub Pages для онлайн-демо.
 
-## GitHub Pages
+## Публикация
 
-Workflow [deploy-pages.yml](.github/workflows/deploy-pages.yml) собирает и публикует приложение при push в `main`; его также можно запустить вручную через **Actions → Deploy GitHub Pages → Run workflow**. Перед первым запуском в **Settings → Pages** выберите **GitHub Actions** как источник публикации.
-
-Во время публикации workflow задаёт Vite base path репозитория. Локальная разработка остаётся на `/`, а production-сборку можно проверить так:
-
-```sh
-VITE_BASE_PATH=/green-api-test/ npm run build
-```
+Workflow [`deploy-pages.yml`](.github/workflows/deploy-pages.yml) запускается при push в `main` и вручную через **Actions → Deploy GitHub Pages → Run workflow**. Для первой публикации выберите **GitHub Actions** в **Settings → Pages**. Workflow задаёт Vite base path репозитория; API origin пользователь вводит в приложении.
 
 ## Проверки
 
 ```sh
 npm run lint
+npm run format:check
 npm run test
 npm run build
-VITE_BASE_PATH=/green-api-test/ npm run build
 ```

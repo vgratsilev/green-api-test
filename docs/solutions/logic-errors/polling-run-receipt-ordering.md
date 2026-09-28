@@ -1,14 +1,15 @@
 ---
 title: Isolate polling runs while preserving receipt order
 date: 2026-09-27
+last_updated: 2026-09-28
 category: logic-errors
-module: Telegram notification polling
+module: GREEN-API notification polling
 problem_type: logic_error
 component: messaging
 symptoms:
   - A receive response arriving after effect cleanup could update the chat and start deleting its receipt.
   - A new polling run could issue a receive or delete while the previous run's request was still pending.
-  - A successful delete completed by a stopped run could be repeated by the next run.
+  - A resolved delete completed by a stopped run could be repeated by the next run, or a resolved `deleted: false` response could stop polling.
 root_cause: concurrency
 resolution_type: code_fix
 severity: high
@@ -19,13 +20,13 @@ tags: [polling, react-effects, abort, receipt-ordering]
 
 ## Problem
 
-The chat polls a Telegram notification queue. React effect cleanup aborts the request, but a client or test transport can still settle its promise later. The old polling run must not deliver that notification to the UI or change the queue state after a new run starts.
+The chat polls the GREEN-API notification queue. React effect cleanup aborts the request, but a client or test transport can still settle its promise later. The old polling run must not deliver that notification to the UI or change the queue state after a new run starts.
 
 ## Symptoms
 
 - The old `receiveNotification` response could call `onIncoming` or `onOutgoingStatus` and set the shared pending receipt after cleanup.
 - A new run could start another queue request before the old one settled.
-- If the old `deleteNotification` succeeded after cleanup, a naive retry by the new run would delete the same receipt twice. Depending on the API response, that could stop polling even though the notification was already acknowledged.
+- If the old `deleteNotification` settled after cleanup, a naive retry by the new run would delete the same receipt twice. Treating a resolved `deleted: false` response as a transport error could also stop polling even though the delete request completed.
 
 ## What Didn't Work
 
@@ -35,21 +36,21 @@ The chat polls a Telegram notification queue. React effect cleanup aborts the re
 
 ## Solution
 
-In [`useNotificationPolling.ts`](../../../src/features/chat/useNotificationPolling.ts), each run checks `active` after awaiting both receive and delete. It records the outstanding operation in `inFlightRef`. A new run waits for that operation to settle before touching the queue. For a completed delete, the new run clears the matching pending receipt only when the delete returned success; after an error it keeps the receipt and retries its deletion before receiving again.
+In [`useNotificationPolling.ts`](../../../src/features/chat/useNotificationPolling.ts), each run checks `active` after awaiting both receive and delete. It records the outstanding operation in `inFlightRef`. A new run waits for that operation to settle before touching the queue. Any resolved delete result, whether `deleted: true` or `deleted: false`, completes the receipt; a retryable rejected request keeps the receipt for another deletion attempt. After retryable failures exhaust their retries, the user can resume polling. A non-retryable error stops polling in a terminal state and requires returning to the connection flow.
 
 ```ts
 const previousOperation = inFlightRef.current
 if (previousOperation) {
   const deleted = await previousOperation.settled
   if (!active) return
-  if (previousOperation.kind === 'delete' && deleted === true
+  if (previousOperation.kind === 'delete' && deleted !== undefined
     && pendingReceiptRef.current === previousOperation.receiptId) {
     pendingReceiptRef.current = undefined
   }
 }
 ```
 
-The receive path classifies a valid notification before storing its receipt. The next operation deletes that receipt before another receive. The existing 1, 2, and 4 second retry delays and manual continuation after exhausted delete retries remain in place.
+The receive path stores the receipt, then classifies its notification before deletion. The next queue operation deletes that receipt before another receive. Retryable delete failures use 1, 2, and 4 second delays; after retries are exhausted the user can resume polling, while a non-retryable error requires returning to the connection flow. For hidden-number messages whose contact identity is not ready, see [Preserve hidden-number receipts until contact identity is available](hidden-number-contact-receipts.md).
 
 ## Why This Works
 
@@ -58,5 +59,5 @@ Only the current effect run performs UI callbacks and receipt updates. The settl
 ## Prevention
 
 - In [`useNotificationPolling.test.tsx`](../../../src/features/chat/useNotificationPolling.test.tsx), resolve an old receive after cleanup and verify it neither renders nor deletes the receipt while the new run waits for the old request.
-- Resolve and reject an old delete after cleanup. On success, verify no second delete occurs; on failure, verify the same receipt is deleted before the next receive.
+- Resolve an old delete after cleanup, including a `deleted: false` result, and verify no second delete occurs. Reject an old delete and verify the same receipt is retried before the next receive.
 - Keep the application-level late-notification test in [`App.test.tsx`](../../../src/App.test.tsx) so leaving the chat cannot acknowledge a response delivered afterward.

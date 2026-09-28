@@ -9,8 +9,10 @@ flowchart LR
   User[Пользователь] --> App[App]
   App --> Runtime[getRuntimeConfig]
   App --> Form[ConnectionForm]
+  Runtime -->|default public API origin| Form
   Form --> Country[CountryCombobox]
-  Form -->|credentials + phone| Workspace[ChatWorkspace]
+  Form -->|API origin + credentials + phone| App
+  App -->|confirmed connection| Workspace[ChatWorkspace]
 
   Workspace --> Contact[useChatContact]
   Workspace --> Polling[useNotificationPolling]
@@ -19,11 +21,10 @@ flowchart LR
   Polling --> Client
   Client --> API[GREEN-API HTTP API]
   API <--> Telegram[Telegram]
-
-  Runtime --> Env[VITE_GREEN_API_URL]
+  App -->|creates client with API origin| Client
 ```
 
-`App` сохраняет credentials и номер только в состоянии вкладки. В переменной окружения находится лишь публичный HTTPS host API; credentials не записываются в URL, localStorage или репозиторий.
+`ConnectionForm` принимает точный публичный HTTPS API origin из консоли инстанса. `App` сохраняет origin, credentials и номер только в состоянии вкладки после успешного preflight через `getStateInstance`; значения не записываются в URL, localStorage, environment variables или репозиторий. Приложение поддерживает один активный личный текстовый чат.
 
 ## 2. Диаграмма классов и типов
 
@@ -63,6 +64,7 @@ classDiagram
   }
 
   class GreenApiClient {
+    +getStateInstance(credentials)
     +getContactInfo(credentials, chatId)
     +sendMessage(credentials, chatId, message)
     +receiveNotification(credentials)
@@ -101,7 +103,8 @@ classDiagram
 
   App --> ConnectionForm
   App --> ChatWorkspace
-  ConnectionForm --> GreenApiCredentials : creates
+  App --> GreenApiClient : preflight and creates
+  ConnectionForm --> App : submits connection values
   ChatWorkspace --> GreenApiClient : uses
   ChatWorkspace --> useChatContact : uses
   ChatWorkspace --> useNotificationPolling : uses
@@ -121,13 +124,14 @@ classDiagram
 stateDiagram-v2
   [*] --> ConnectionForm
   ConnectionForm --> ConnectionForm: invalid phone
-  ConnectionForm --> Chat: valid credentials and phone
+  ConnectionForm --> Chat: authorized getStateInstance
   Chat --> Chat: send or receive message
   Chat --> RetryPolling: retryable errors exhausted
   RetryPolling --> Chat: Retry polling
   Chat --> TerminalPolling: terminal polling error
   TerminalPolling --> ConnectionForm: Return to connection
   Chat --> ConnectionForm: Return to connection
+  Chat --> [*]: page reload
   ConnectionForm --> [*]: page reload
 ```
 
@@ -137,7 +141,8 @@ Reloading the page intentionally ends the session: its credentials exist only in
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Sending: submit draft
+  [*] --> Pending: submit draft
+  Pending --> Sending: send queue starts job
   Sending --> Queued: SendMessage returns idMessage
   Sending --> Failed: SendMessage fails
   Queued --> Delivered: outgoingMessageStatus delivered
@@ -145,7 +150,7 @@ stateDiagram-v2
   Queued --> Failed: outgoingMessageStatus failed or noAccount
   Delivered --> Read: outgoingMessageStatus read
   Delivered --> Failed: outgoingMessageStatus failed or noAccount
-  Failed --> Sending: retry
+  Failed --> Pending: retry
   Read --> [*]
 ```
 
@@ -162,7 +167,9 @@ sequenceDiagram
   participant Recipient as Telegram получателя
 
   User->>UI: Вводит текст и нажимает Отправить
-  UI->>UI: Добавляет локальное сообщение (sending)
+  UI->>UI: Добавляет локальное сообщение (pending)
+  UI->>UI: Ставит задачу в последовательную очередь отправки
+  UI->>UI: Начинает отправку задачи (sending)
   UI->>Client: sendMessage(credentials, phone@c.us, text)
   Client->>API: POST /sendMessage
   API-->>Client: { idMessage }
@@ -171,7 +178,7 @@ sequenceDiagram
   API-->>Recipient: Доставляет сообщение в Telegram
 ```
 
-При ошибке запросов новое сообщение удаляется, черновик остаётся в поле ввода. При повторной отправке существующее failed-сообщение возвращается в `sending`.
+При ошибке запроса сообщение остаётся в чате со статусом `failed`, а черновик остаётся в поле ввода. Повторная отправка возвращает сообщение в очередь со статусом `pending`; задачи отправляются последовательно.
 
 ## 6. Получение уведомлений и подтверждение очереди
 
@@ -188,25 +195,36 @@ sequenceDiagram
       Client->>API: GET /receiveNotification?receiveTimeout=5
       API-->>Client: empty или receipt + notification
       Client-->>Hook: result
+      alt Получен receipt
+        Hook->>Hook: Сохраняет receiptId и notification
+      else Очередь пуста
+        Hook->>Hook: Сразу начинает следующий receive
+      end
+    else Есть receiptId
+      Hook->>Hook: Классифицирует notification
       alt Подходящее входящее текстовое сообщение
         Hook-->>UI: onIncoming(notification)
         UI->>UI: Добавляет входящее сообщение без дубликата
       else Статус исходящего сообщения
         Hook-->>UI: onOutgoingStatus(notification)
         UI->>UI: Обновляет status исходящего сообщения
+      else Уведомление не подходит для активного чата
+        Hook->>Hook: Игнорирует notification
+      else Для скрытого номера ещё загружается контакт
+        Hook->>Hook: Откладывает обработку и сохраняет receipt
       end
-      Hook->>Hook: Сохраняет receiptId
-    else Есть receiptId
-      Hook->>Client: deleteNotification(credentials, receiptId)
-      Client->>API: DELETE /deleteNotification/{receiptId}
-      API-->>Client: { result: true }
-      Client-->>Hook: deleted
-      Hook->>Hook: Очищает receiptId
+      opt Receipt классифицирован
+        Hook->>Client: deleteNotification(credentials, receiptId)
+        Client->>API: DELETE /deleteNotification/{receiptId}
+        API-->>Client: { result: boolean }
+        Client-->>Hook: deleted
+        Hook->>Hook: Очищает receiptId
+      end
     end
   end
 ```
 
-Один polling run выполняет только одну операцию с очередью одновременно. При остановке hook отменяет запрос; новый run ожидает завершения старой операции, чтобы не читать и не удалять уведомления параллельно. Повторяемые ошибки получают задержки 1, 2 и 4 секунды; затем UI предлагает ручной перезапуск.
+Один polling run выполняет только одну операцию с очередью одновременно. При остановке hook отменяет запрос; новый run ожидает завершения старой операции, чтобы не читать и не удалять уведомления параллельно. Если для входящего сообщения со скрытым номером ещё не загружена контактная идентичность, hook сохраняет receipt и откладывает классификацию. Разрешённый ответ DELETE завершает receipt даже при `result: false`; повторяемая ошибка сохраняет его для повтора. Повторяемые ошибки получают задержки 1, 2 и 4 секунды; затем UI предлагает ручной перезапуск.
 
 ## Проверка актуальности
 

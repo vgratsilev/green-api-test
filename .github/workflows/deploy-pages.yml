@@ -25,7 +25,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -34,7 +34,6 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_GREEN_API_URL: ${{ vars.VITE_GREEN_API_URL }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
 
       - name: Test

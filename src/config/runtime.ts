@@ -1,17 +1,16 @@
-export type RuntimeConfig =
-  | { apiUrl: string }
-  | { error: 'Укажите публичный HTTPS-адрес API GREEN-API в VITE_GREEN_API_URL.' }
+export type RuntimeConfig = { defaultApiUrl: string };
 
-const configurationError =
-  'Укажите публичный HTTPS-адрес API GREEN-API в VITE_GREEN_API_URL.' as const
+export const defaultApiUrl = 'https://api.green-api.com';
 
-export function getRuntimeConfig(apiUrl = import.meta.env.VITE_GREEN_API_URL): RuntimeConfig {
-  if (!apiUrl) {
-    return { error: configurationError }
-  }
+export function getRuntimeConfig(apiUrl?: string): RuntimeConfig {
+  return { defaultApiUrl: normalizeApiUrl(apiUrl) ?? defaultApiUrl };
+}
+
+export function normalizeApiUrl(apiUrl?: string): string | undefined {
+  if (!apiUrl) return undefined;
 
   try {
-    const url = new URL(apiUrl)
+    const url = new URL(apiUrl);
 
     if (
       url.protocol !== 'https:' ||
@@ -21,11 +20,11 @@ export function getRuntimeConfig(apiUrl = import.meta.env.VITE_GREEN_API_URL): R
       url.search ||
       url.hash
     ) {
-      return { error: configurationError }
+      return undefined;
     }
 
-    return { apiUrl: url.origin }
+    return url.origin;
   } catch {
-    return { error: configurationError }
+    return undefined;
   }
 }
