@@ -1,55 +1,61 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { createGreenApiClient } from './api/greenApi'
-import { getRuntimeConfig } from './config/runtime'
-import { ChatWorkspace, type ChatMessage } from './features/chat/ChatWorkspace'
-import { ConnectionForm, type ConnectionValues } from './features/connection/ConnectionForm'
+import { createGreenApiClient } from './api/greenApi';
+import { getRuntimeConfig } from './config/runtime';
+import { ChatWorkspace, type ChatMessage } from './features/chat/ChatWorkspace';
+import { ConnectionForm, type ConnectionValues } from './features/connection/ConnectionForm';
 
 type AppProps = {
-  apiUrl?: string
-}
+  apiUrl?: string;
+};
 
 type ConfirmedConnection = ConnectionValues & {
-  client: ReturnType<typeof createGreenApiClient>
-}
+  client: ReturnType<typeof createGreenApiClient>;
+};
 
 export function App({ apiUrl }: AppProps) {
-  const configuration = getRuntimeConfig(apiUrl)
-  const [connection, setConnection] = useState<ConfirmedConnection>()
-  const [isEditingConnection, setIsEditingConnection] = useState(false)
-  const chatSnapshotsRef = useRef<Record<string, ChatMessage[]>>({})
-  const preflightControllerRef = useRef<AbortController | undefined>(undefined)
-  const sessionKey = connection ? getSessionKey(connection) : ''
-  const saveChatSnapshot = useCallback((messages: ChatMessage[]) => {
-    if (!sessionKey) return
+  const configuration = getRuntimeConfig(apiUrl);
+  const [connection, setConnection] = useState<ConfirmedConnection>();
+  const [isEditingConnection, setIsEditingConnection] = useState(false);
+  const chatSnapshotsRef = useRef<Record<string, ChatMessage[]>>({});
+  const preflightControllerRef = useRef<AbortController | undefined>(undefined);
+  const sessionKey = connection ? getSessionKey(connection) : '';
+  const saveChatSnapshot = useCallback(
+    (messages: ChatMessage[]) => {
+      if (!sessionKey) return;
 
-    chatSnapshotsRef.current[sessionKey] = messages
-  }, [sessionKey])
+      chatSnapshotsRef.current[sessionKey] = messages;
+    },
+    [sessionKey],
+  );
 
-  useEffect(() => () => preflightControllerRef.current?.abort(), [])
+  useEffect(() => () => preflightControllerRef.current?.abort(), []);
 
   async function connect(nextConnection: ConnectionValues): Promise<boolean> {
-    const sameConnection = connection
-      && connection.apiUrl === nextConnection.apiUrl
-      && connection.credentials.instanceId === nextConnection.credentials.instanceId
-      && connection.credentials.apiToken === nextConnection.credentials.apiToken
-      && connection.phone === nextConnection.phone
-    const client = sameConnection ? connection.client : createGreenApiClient({ apiUrl: nextConnection.apiUrl })
-    preflightControllerRef.current?.abort()
-    const controller = new AbortController()
-    preflightControllerRef.current = controller
+    const sameConnection =
+      connection &&
+      connection.apiUrl === nextConnection.apiUrl &&
+      connection.credentials.instanceId === nextConnection.credentials.instanceId &&
+      connection.credentials.apiToken === nextConnection.credentials.apiToken &&
+      connection.phone === nextConnection.phone;
+    const client = sameConnection
+      ? connection.client
+      : createGreenApiClient({ apiUrl: nextConnection.apiUrl });
+    preflightControllerRef.current?.abort();
+    const controller = new AbortController();
+    preflightControllerRef.current = controller;
 
     try {
-      const state = await client.getStateInstance(nextConnection.credentials, controller.signal)
-      if (controller.signal.aborted) return false
-      if (!state.authorized) return false
-      setConnection({ ...nextConnection, client })
-      setIsEditingConnection(false)
-      return true
+      const state = await client.getStateInstance(nextConnection.credentials, controller.signal);
+      if (controller.signal.aborted) return false;
+      if (!state.authorized) return false;
+      setConnection({ ...nextConnection, client });
+      setIsEditingConnection(false);
+      return true;
     } catch {
-      return false
+      return false;
     } finally {
-      if (preflightControllerRef.current === controller) preflightControllerRef.current = undefined
+      if (preflightControllerRef.current === controller) preflightControllerRef.current = undefined;
     }
   }
 
@@ -65,7 +71,7 @@ export function App({ apiUrl }: AppProps) {
           onReturnToConnection={() => setIsEditingConnection(true)}
         />
       </main>
-    )
+    );
   }
 
   return (
@@ -82,9 +88,9 @@ export function App({ apiUrl }: AppProps) {
         />
       </section>
     </main>
-  )
+  );
 }
 
 function getSessionKey(connection: ConnectionValues): string {
-  return [connection.apiUrl, connection.credentials.instanceId, connection.phone].join('\u0000')
+  return [connection.apiUrl, connection.credentials.instanceId, connection.phone].join('\u0000');
 }

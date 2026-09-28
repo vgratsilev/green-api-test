@@ -1,16 +1,16 @@
-export type RuntimeConfig = { defaultApiUrl: string }
+export type RuntimeConfig = { defaultApiUrl: string };
 
-export const defaultApiUrl = 'https://api.green-api.com'
+export const defaultApiUrl = 'https://api.green-api.com';
 
 export function getRuntimeConfig(apiUrl?: string): RuntimeConfig {
-  return { defaultApiUrl: normalizeApiUrl(apiUrl) ?? defaultApiUrl }
+  return { defaultApiUrl: normalizeApiUrl(apiUrl) ?? defaultApiUrl };
 }
 
 export function normalizeApiUrl(apiUrl?: string): string | undefined {
-  if (!apiUrl) return undefined
+  if (!apiUrl) return undefined;
 
   try {
-    const url = new URL(apiUrl)
+    const url = new URL(apiUrl);
 
     if (
       url.protocol !== 'https:' ||
@@ -20,11 +20,11 @@ export function normalizeApiUrl(apiUrl?: string): string | undefined {
       url.search ||
       url.hash
     ) {
-      return undefined
+      return undefined;
     }
 
-    return url.origin
+    return url.origin;
   } catch {
-    return undefined
+    return undefined;
   }
 }

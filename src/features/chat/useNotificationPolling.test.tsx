@@ -1,11 +1,11 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { GreenApiError } from '../../api/greenApi'
-import type { IncomingNotification } from '../../domain/chat'
-import { useNotificationPolling } from './useNotificationPolling'
+import { GreenApiError } from '../../api/greenApi';
+import type { IncomingNotification } from '../../domain/chat';
+import { useNotificationPolling } from './useNotificationPolling';
 
-const credentials = { instanceId: '123', apiToken: 'secret' }
+const credentials = { instanceId: '123', apiToken: 'secret' };
 
 function incoming(overrides: Partial<IncomingNotification> = {}): IncomingNotification {
   return {
@@ -16,345 +16,500 @@ function incoming(overrides: Partial<IncomingNotification> = {}): IncomingNotifi
     typeMessage: 'textMessage',
     text: 'Привет',
     ...overrides,
-  }
+  };
 }
 
 describe('useNotificationPolling', () => {
   afterEach(() => {
-    vi.useRealTimers()
-    vi.clearAllMocks()
-  })
+    vi.useRealTimers();
+    vi.clearAllMocks();
+  });
 
   it('classifies, acknowledges, and only then starts the next receive', async () => {
-    const receiveNotification = vi.fn()
+    const receiveNotification = vi
+      .fn()
       .mockResolvedValueOnce({ receiptId: 42, notification: incoming() })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-    const onIncoming = vi.fn()
-    const onOutgoingStatus = vi.fn()
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+    const onIncoming = vi.fn();
+    const onOutgoingStatus = vi.fn();
 
-    renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming,
-      onOutgoingStatus,
-    }))
+    renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming,
+        onOutgoingStatus,
+      }),
+    );
 
-    await waitFor(() => expect(onIncoming).toHaveBeenCalledWith(incoming()))
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(credentials, 42, expect.any(AbortSignal)))
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-    expect(deleteNotification.mock.invocationCallOrder[0]).toBeLessThan(receiveNotification.mock.invocationCallOrder[1])
-  })
+    await waitFor(() => expect(onIncoming).toHaveBeenCalledWith(incoming()));
+    await waitFor(() =>
+      expect(deleteNotification).toHaveBeenCalledWith(credentials, 42, expect.any(AbortSignal)),
+    );
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+    expect(deleteNotification.mock.invocationCallOrder[0]).toBeLessThan(
+      receiveNotification.mock.invocationCallOrder[1],
+    );
+  });
 
   it('acknowledges unrelated or malformed records without rendering them', async () => {
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 7, notification: incoming({ senderPhoneNumber: '79990000000' }) })
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receiptId: 7,
+        notification: incoming({ senderPhoneNumber: '79990000000' }),
+      })
       .mockResolvedValueOnce({ receiptId: 8, notification: undefined })
-      .mockResolvedValueOnce({ receiptId: 9, notification: incoming({ typeMessage: 'imageMessage' }) })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-    const onIncoming = vi.fn()
-    const onOutgoingStatus = vi.fn()
-
-    renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming,
-      onOutgoingStatus,
-    }))
-
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(3))
-    expect(onIncoming).not.toHaveBeenCalled()
-  })
-
-  it('accepts a hidden-number reply only from the contact lookup chatId', async () => {
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 7, notification: incoming({ idMessage: 'other', senderPhoneNumber: '0', chatId: 'other-chat' }) })
-      .mockResolvedValueOnce({ receiptId: 8, notification: incoming({ idMessage: 'matching', senderPhoneNumber: '0', chatId: '10000000' }) })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-    const onIncoming = vi.fn()
-
-    renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      contactChatId: '10000000',
-      onIncoming,
-      onOutgoingStatus: vi.fn(),
-    }))
-
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
-    expect(onIncoming).toHaveBeenCalledTimes(1)
-    expect(onIncoming).toHaveBeenCalledWith(incoming({ idMessage: 'matching', senderPhoneNumber: '0', chatId: '10000000' }))
-  })
-
-  it('defers a hidden-number receipt until contact identity is resolved', async () => {
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 19, notification: incoming({ senderPhoneNumber: '0', chatId: '10000000' }) })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-    const onIncoming = vi.fn()
-    const client = { receiveNotification, deleteNotification }
-    const { rerender } = renderHook(({ contactStatus, contactChatId }) => useNotificationPolling({
-      client,
-      credentials,
-      phone: '79991234567',
-      contactStatus,
-      contactChatId,
-      onIncoming,
-      onOutgoingStatus: vi.fn(),
-    }), { initialProps: { contactStatus: 'loading', contactChatId: undefined } as {
-      contactStatus: 'loading' | 'resolved'
-      contactChatId?: string
-    } })
-
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1))
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
-    expect(deleteNotification).not.toHaveBeenCalled()
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
-    expect(onIncoming).not.toHaveBeenCalled()
-
-    rerender({ contactStatus: 'resolved', contactChatId: '10000000' })
-    await waitFor(() => expect(onIncoming).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(credentials, 19, expect.any(AbortSignal)))
-    expect(receiveNotification).toHaveBeenCalledTimes(2)
-  })
-
-  it('acknowledges malformed hidden-number receipts while identity is unresolved', async () => {
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 20, notification: incoming({ senderPhoneNumber: '0', idMessage: undefined, text: undefined }) })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-
-    renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      contactStatus: 'loading',
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }))
-
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-    expect(deleteNotification).toHaveBeenCalledTimes(1)
-    expect(deleteNotification).toHaveBeenCalledWith(credentials, 20, expect.any(AbortSignal))
-  })
-
-  it('acknowledges hidden-number receipts without a chat id', async () => {
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 22, notification: incoming({ senderPhoneNumber: '0', chatId: undefined }) })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-
-    renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      contactStatus: 'loading',
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }))
-
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-    expect(deleteNotification).toHaveBeenCalledWith(credentials, 22, expect.any(AbortSignal))
-  })
-
-  it('continues when delete reports that the receipt was already processed', async () => {
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 21, notification: incoming() })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: false })
-    const { result } = renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }))
-
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-    expect(deleteNotification).toHaveBeenCalledTimes(1)
-    expect(result.current.status).toBe('polling')
-  })
-
-  it('ignores a late receive from a stopped run before starting one consumer', async () => {
-    let resolveOldReceive: ((value: { receiptId: number; notification: IncomingNotification }) => void) | undefined
-    const receiveNotification = vi.fn()
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveOldReceive = resolve }))
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn()
-    const onIncoming = vi.fn()
-    const client = { receiveNotification, deleteNotification }
-    const { rerender } = renderHook(({ phone }) => useNotificationPolling({
-      client,
-      credentials,
-      phone,
-      onIncoming,
-      onOutgoingStatus: vi.fn(),
-    }), { initialProps: { phone: '79991234567' } })
-
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1))
-    rerender({ phone: '79990000000' })
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
-
-    await act(async () => { resolveOldReceive?.({ receiptId: 42, notification: incoming() }) })
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-    expect(onIncoming).not.toHaveBeenCalled()
-    expect(deleteNotification).not.toHaveBeenCalled()
-  })
-
-  it('keeps an in-flight delete ordered across run cleanup', async () => {
-    let resolveOldDelete: ((value: { deleted: boolean }) => void) | undefined
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 42, notification: incoming() })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn()
-      .mockImplementationOnce(() => new Promise((resolve) => { resolveOldDelete = resolve }))
-      .mockResolvedValue({ deleted: true })
-    const client = { receiveNotification, deleteNotification }
-    const { rerender } = renderHook(({ phone }) => useNotificationPolling({
-      client,
-      credentials,
-      phone,
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }), { initialProps: { phone: '79991234567' } })
-
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(1))
-    rerender({ phone: '79990000000' })
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
-    expect(deleteNotification).toHaveBeenCalledTimes(1)
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
-
-    await act(async () => { resolveOldDelete?.({ deleted: true }) })
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-    expect(deleteNotification).toHaveBeenCalledTimes(1)
-    expect(deleteNotification.mock.invocationCallOrder[0]).toBeLessThan(receiveNotification.mock.invocationCallOrder[1])
-  })
-
-  it('retries the same receipt when a stopped run finishes with a delete error', async () => {
-    let rejectOldDelete: ((error: Error) => void) | undefined
-    const receiveNotification = vi.fn()
-      .mockResolvedValueOnce({ receiptId: 42, notification: incoming() })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn()
-      .mockImplementationOnce(() => new Promise((_, reject) => { rejectOldDelete = reject }))
-      .mockResolvedValue({ deleted: true })
-    const client = { receiveNotification, deleteNotification }
-    const { rerender } = renderHook(({ phone }) => useNotificationPolling({
-      client, credentials, phone, onIncoming: vi.fn(), onOutgoingStatus: vi.fn(),
-    }), { initialProps: { phone: '79991234567' } })
-
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(1))
-    rerender({ phone: '79990000000' })
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)) })
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
-
-    await act(async () => { rejectOldDelete?.(new GreenApiError('abort')) })
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2))
-    expect(deleteNotification).toHaveBeenNthCalledWith(2, credentials, 42, expect.any(AbortSignal))
-    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2))
-  })
-
-  it('forwards an outgoing delivery status and acknowledges its receipt', async () => {
-    const receiveNotification = vi.fn()
       .mockResolvedValueOnce({
         receiptId: 9,
-        notification: { idMessage: 'outgoing-1', typeWebhook: 'outgoingMessageStatus', outgoingStatus: 'delivered' },
+        notification: incoming({ typeMessage: 'imageMessage' }),
       })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true })
-    const onOutgoingStatus = vi.fn()
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+    const onIncoming = vi.fn();
+    const onOutgoingStatus = vi.fn();
 
-    renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming: vi.fn(),
-      onOutgoingStatus,
-    }))
+    renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming,
+        onOutgoingStatus,
+      }),
+    );
 
-    await waitFor(() => expect(onOutgoingStatus).toHaveBeenCalledWith({ idMessage: 'outgoing-1', status: 'delivered' }))
-    await waitFor(() => expect(deleteNotification).toHaveBeenCalledWith(credentials, 9, expect.any(AbortSignal)))
-  })
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(3));
+    expect(onIncoming).not.toHaveBeenCalled();
+  });
+
+  it('accepts a hidden-number reply only from the contact lookup chatId', async () => {
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receiptId: 7,
+        notification: incoming({
+          idMessage: 'other',
+          senderPhoneNumber: '0',
+          chatId: 'other-chat',
+        }),
+      })
+      .mockResolvedValueOnce({
+        receiptId: 8,
+        notification: incoming({
+          idMessage: 'matching',
+          senderPhoneNumber: '0',
+          chatId: '10000000',
+        }),
+      })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+    const onIncoming = vi.fn();
+
+    renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        contactChatId: '10000000',
+        onIncoming,
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2));
+    expect(onIncoming).toHaveBeenCalledTimes(1);
+    expect(onIncoming).toHaveBeenCalledWith(
+      incoming({ idMessage: 'matching', senderPhoneNumber: '0', chatId: '10000000' }),
+    );
+  });
+
+  it('defers a hidden-number receipt until contact identity is resolved', async () => {
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receiptId: 19,
+        notification: incoming({ senderPhoneNumber: '0', chatId: '10000000' }),
+      })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+    const onIncoming = vi.fn();
+    const client = { receiveNotification, deleteNotification };
+    const { rerender } = renderHook(
+      ({ contactStatus, contactChatId }) =>
+        useNotificationPolling({
+          client,
+          credentials,
+          phone: '79991234567',
+          contactStatus,
+          contactChatId,
+          onIncoming,
+          onOutgoingStatus: vi.fn(),
+        }),
+      {
+        initialProps: { contactStatus: 'loading', contactChatId: undefined } as {
+          contactStatus: 'loading' | 'resolved';
+          contactChatId?: string;
+        },
+      },
+    );
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(deleteNotification).not.toHaveBeenCalled();
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
+    expect(onIncoming).not.toHaveBeenCalled();
+
+    rerender({ contactStatus: 'resolved', contactChatId: '10000000' });
+    await waitFor(() => expect(onIncoming).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(deleteNotification).toHaveBeenCalledWith(credentials, 19, expect.any(AbortSignal)),
+    );
+    expect(receiveNotification).toHaveBeenCalledTimes(2);
+  });
+
+  it('acknowledges malformed hidden-number receipts while identity is unresolved', async () => {
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receiptId: 20,
+        notification: incoming({ senderPhoneNumber: '0', idMessage: undefined, text: undefined }),
+      })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+
+    renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        contactStatus: 'loading',
+        onIncoming: vi.fn(),
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+    expect(deleteNotification).toHaveBeenCalledTimes(1);
+    expect(deleteNotification).toHaveBeenCalledWith(credentials, 20, expect.any(AbortSignal));
+  });
+
+  it('acknowledges hidden-number receipts without a chat id', async () => {
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receiptId: 22,
+        notification: incoming({ senderPhoneNumber: '0', chatId: undefined }),
+      })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+
+    renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        contactStatus: 'loading',
+        onIncoming: vi.fn(),
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+    expect(deleteNotification).toHaveBeenCalledWith(credentials, 22, expect.any(AbortSignal));
+  });
+
+  it('continues when delete reports that the receipt was already processed', async () => {
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({ receiptId: 21, notification: incoming() })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: false });
+    const { result } = renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming: vi.fn(),
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+    expect(deleteNotification).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe('polling');
+  });
+
+  it('ignores a late receive from a stopped run before starting one consumer', async () => {
+    let resolveOldReceive:
+      ((value: { receiptId: number; notification: IncomingNotification }) => void) | undefined;
+    const receiveNotification = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOldReceive = resolve;
+          }),
+      )
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn();
+    const onIncoming = vi.fn();
+    const client = { receiveNotification, deleteNotification };
+    const { rerender } = renderHook(
+      ({ phone }) =>
+        useNotificationPolling({
+          client,
+          credentials,
+          phone,
+          onIncoming,
+          onOutgoingStatus: vi.fn(),
+        }),
+      { initialProps: { phone: '79991234567' } },
+    );
+
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(1));
+    rerender({ phone: '79990000000' });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveOldReceive?.({ receiptId: 42, notification: incoming() });
+    });
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+    expect(onIncoming).not.toHaveBeenCalled();
+    expect(deleteNotification).not.toHaveBeenCalled();
+  });
+
+  it('keeps an in-flight delete ordered across run cleanup', async () => {
+    let resolveOldDelete: ((value: { deleted: boolean }) => void) | undefined;
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({ receiptId: 42, notification: incoming() })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOldDelete = resolve;
+          }),
+      )
+      .mockResolvedValue({ deleted: true });
+    const client = { receiveNotification, deleteNotification };
+    const { rerender } = renderHook(
+      ({ phone }) =>
+        useNotificationPolling({
+          client,
+          credentials,
+          phone,
+          onIncoming: vi.fn(),
+          onOutgoingStatus: vi.fn(),
+        }),
+      { initialProps: { phone: '79991234567' } },
+    );
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(1));
+    rerender({ phone: '79990000000' });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(deleteNotification).toHaveBeenCalledTimes(1);
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveOldDelete?.({ deleted: true });
+    });
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+    expect(deleteNotification).toHaveBeenCalledTimes(1);
+    expect(deleteNotification.mock.invocationCallOrder[0]).toBeLessThan(
+      receiveNotification.mock.invocationCallOrder[1],
+    );
+  });
+
+  it('retries the same receipt when a stopped run finishes with a delete error', async () => {
+    let rejectOldDelete: ((error: Error) => void) | undefined;
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({ receiptId: 42, notification: incoming() })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectOldDelete = reject;
+          }),
+      )
+      .mockResolvedValue({ deleted: true });
+    const client = { receiveNotification, deleteNotification };
+    const { rerender } = renderHook(
+      ({ phone }) =>
+        useNotificationPolling({
+          client,
+          credentials,
+          phone,
+          onIncoming: vi.fn(),
+          onOutgoingStatus: vi.fn(),
+        }),
+      { initialProps: { phone: '79991234567' } },
+    );
+
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(1));
+    rerender({ phone: '79990000000' });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      rejectOldDelete?.(new GreenApiError('abort'));
+    });
+    await waitFor(() => expect(deleteNotification).toHaveBeenCalledTimes(2));
+    expect(deleteNotification).toHaveBeenNthCalledWith(2, credentials, 42, expect.any(AbortSignal));
+    await waitFor(() => expect(receiveNotification).toHaveBeenCalledTimes(2));
+  });
+
+  it('forwards an outgoing delivery status and acknowledges its receipt', async () => {
+    const receiveNotification = vi
+      .fn()
+      .mockResolvedValueOnce({
+        receiptId: 9,
+        notification: {
+          idMessage: 'outgoing-1',
+          typeWebhook: 'outgoingMessageStatus',
+          outgoingStatus: 'delivered',
+        },
+      })
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi.fn().mockResolvedValue({ deleted: true });
+    const onOutgoingStatus = vi.fn();
+
+    renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming: vi.fn(),
+        onOutgoingStatus,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(onOutgoingStatus).toHaveBeenCalledWith({
+        idMessage: 'outgoing-1',
+        status: 'delivered',
+      }),
+    );
+    await waitFor(() =>
+      expect(deleteNotification).toHaveBeenCalledWith(credentials, 9, expect.any(AbortSignal)),
+    );
+  });
 
   it('retries a receive at 1, 2, and 4 seconds before stopping', async () => {
-    vi.useFakeTimers()
-    const receiveNotification = vi.fn().mockRejectedValue(new GreenApiError('retryable'))
-    const deleteNotification = vi.fn()
-    const { result } = renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }))
+    vi.useFakeTimers();
+    const receiveNotification = vi.fn().mockRejectedValue(new GreenApiError('retryable'));
+    const deleteNotification = vi.fn();
+    const { result } = renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming: vi.fn(),
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(1_000) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(2_000) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(4_000) })
-    await act(async () => {})
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    await act(async () => {});
 
-    expect(receiveNotification).toHaveBeenCalledTimes(4)
-    expect(result.current.status).toBe('retry-exhausted')
-    expect(deleteNotification).not.toHaveBeenCalled()
-  })
+    expect(receiveNotification).toHaveBeenCalledTimes(4);
+    expect(result.current.status).toBe('retry-exhausted');
+    expect(deleteNotification).not.toHaveBeenCalled();
+  });
 
   it('keeps a failed delete receipt for manual recovery', async () => {
-    vi.useFakeTimers()
-    const receiveNotification = vi.fn()
+    vi.useFakeTimers();
+    const receiveNotification = vi
+      .fn()
       .mockResolvedValueOnce({ receiptId: 42, notification: incoming() })
-      .mockImplementation(() => new Promise(() => {}))
-    const deleteNotification = vi.fn()
+      .mockImplementation(() => new Promise(() => {}));
+    const deleteNotification = vi
+      .fn()
       .mockRejectedValueOnce(new GreenApiError('retryable'))
       .mockRejectedValueOnce(new GreenApiError('retryable'))
       .mockRejectedValueOnce(new GreenApiError('retryable'))
       .mockRejectedValueOnce(new GreenApiError('retryable'))
-      .mockResolvedValueOnce({ deleted: true })
-    const { result } = renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }))
+      .mockResolvedValueOnce({ deleted: true });
+    const { result } = renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming: vi.fn(),
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
 
-    await act(async () => { await vi.runAllTimersAsync() })
-    expect(result.current.status).toBe('retry-exhausted')
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
-    expect(deleteNotification).toHaveBeenCalledTimes(4)
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+    expect(result.current.status).toBe('retry-exhausted');
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
+    expect(deleteNotification).toHaveBeenCalledTimes(4);
 
-    act(() => result.current.retry())
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(deleteNotification).toHaveBeenCalledTimes(5)
-    expect(deleteNotification).toHaveBeenLastCalledWith(credentials, 42, expect.any(AbortSignal))
-    await act(async () => { await vi.advanceTimersByTimeAsync(1) })
-    expect(receiveNotification).toHaveBeenCalledTimes(2)
-    expect(deleteNotification.mock.invocationCallOrder[4]).toBeLessThan(receiveNotification.mock.invocationCallOrder[1])
-  })
+    act(() => result.current.retry());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(deleteNotification).toHaveBeenCalledTimes(5);
+    expect(deleteNotification).toHaveBeenLastCalledWith(credentials, 42, expect.any(AbortSignal));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(receiveNotification).toHaveBeenCalledTimes(2);
+    expect(deleteNotification.mock.invocationCallOrder[4]).toBeLessThan(
+      receiveNotification.mock.invocationCallOrder[1],
+    );
+  });
 
   it('stops terminal failures without retrying or acknowledging', async () => {
-    vi.useFakeTimers()
-    const receiveNotification = vi.fn().mockRejectedValue(new GreenApiError('terminal'))
-    const deleteNotification = vi.fn()
-    const { result } = renderHook(() => useNotificationPolling({
-      client: { receiveNotification, deleteNotification },
-      credentials,
-      phone: '79991234567',
-      onIncoming: vi.fn(),
-      onOutgoingStatus: vi.fn(),
-    }))
+    vi.useFakeTimers();
+    const receiveNotification = vi.fn().mockRejectedValue(new GreenApiError('terminal'));
+    const deleteNotification = vi.fn();
+    const { result } = renderHook(() =>
+      useNotificationPolling({
+        client: { receiveNotification, deleteNotification },
+        credentials,
+        phone: '79991234567',
+        onIncoming: vi.fn(),
+        onOutgoingStatus: vi.fn(),
+      }),
+    );
 
-    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(result.current.status).toBe('terminal')
-    expect(receiveNotification).toHaveBeenCalledTimes(1)
-    expect(deleteNotification).not.toHaveBeenCalled()
-  })
-})
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.status).toBe('terminal');
+    expect(receiveNotification).toHaveBeenCalledTimes(1);
+    expect(deleteNotification).not.toHaveBeenCalled();
+  });
+});

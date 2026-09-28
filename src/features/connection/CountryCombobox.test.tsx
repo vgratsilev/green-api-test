@@ -1,53 +1,56 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 
-import { CountryCombobox } from './CountryCombobox'
+import { CountryCombobox } from './CountryCombobox';
 
 describe('CountryCombobox', () => {
   it('selects a country and closes the menu', () => {
-    const onChange = vi.fn()
+    const onChange = vi.fn();
 
-    render(<CountryCombobox country={undefined} onChange={onChange} />)
+    render(<CountryCombobox country={undefined} onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole('combobox', { name: 'Страна' }))
-    fireEvent.click(screen.getByRole('option', { name: /Россия/ }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Страна' }));
+    fireEvent.click(screen.getByRole('option', { name: /Россия/ }));
 
-    expect(onChange).toHaveBeenCalledWith('RU')
-    expect(screen.getByRole('combobox', { name: 'Страна' })).toHaveAttribute('aria-expanded', 'false')
-  })
+    expect(onChange).toHaveBeenCalledWith('RU');
+    expect(screen.getByRole('combobox', { name: 'Страна' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+  });
 
   it('focuses the selected country when the menu opens', () => {
-    render(<CountryCombobox country="RU" onChange={vi.fn()} />)
+    render(<CountryCombobox country="RU" onChange={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('combobox', { name: 'Страна' }))
+    fireEvent.click(screen.getByRole('combobox', { name: 'Страна' }));
 
-    expect(screen.getByRole('option', { name: /Россия/ })).toHaveFocus()
-  })
+    expect(screen.getByRole('option', { name: /Россия/ })).toHaveFocus();
+  });
 
   it('closes the menu on Escape and outside pointer down', () => {
-    render(<CountryCombobox country={undefined} onChange={vi.fn()} />)
+    render(<CountryCombobox country={undefined} onChange={vi.fn()} />);
 
-    const combobox = screen.getByRole('combobox', { name: 'Страна' })
-    fireEvent.click(combobox)
-    fireEvent.keyDown(combobox, { key: 'Escape' })
-    expect(combobox).toHaveAttribute('aria-expanded', 'false')
+    const combobox = screen.getByRole('combobox', { name: 'Страна' });
+    fireEvent.click(combobox);
+    fireEvent.keyDown(combobox, { key: 'Escape' });
+    expect(combobox).toHaveAttribute('aria-expanded', 'false');
 
-    fireEvent.click(combobox)
-    fireEvent.pointerDown(document.body)
-    expect(combobox).toHaveAttribute('aria-expanded', 'false')
-  })
+    fireEvent.click(combobox);
+    fireEvent.pointerDown(document.body);
+    expect(combobox).toHaveAttribute('aria-expanded', 'false');
+  });
 
   it('returns focus to the trigger when Escape closes the selected country menu', () => {
-    render(<CountryCombobox country="RU" onChange={vi.fn()} />)
+    render(<CountryCombobox country="RU" onChange={vi.fn()} />);
 
-    const combobox = screen.getByRole('combobox', { name: 'Страна' })
-    fireEvent.click(combobox)
-    const selected = screen.getByRole('option', { name: /Россия/ })
-    expect(selected).toHaveFocus()
+    const combobox = screen.getByRole('combobox', { name: 'Страна' });
+    fireEvent.click(combobox);
+    const selected = screen.getByRole('option', { name: /Россия/ });
+    expect(selected).toHaveFocus();
 
-    fireEvent.keyDown(selected, { key: 'Escape' })
+    fireEvent.keyDown(selected, { key: 'Escape' });
 
-    expect(combobox).toHaveAttribute('aria-expanded', 'false')
-    expect(combobox).toHaveFocus()
-  })
-})
+    expect(combobox).toHaveAttribute('aria-expanded', 'false');
+    expect(combobox).toHaveFocus();
+  });
+});

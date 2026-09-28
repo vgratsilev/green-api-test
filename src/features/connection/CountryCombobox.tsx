@@ -1,54 +1,59 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { getCountries, getCountryCallingCode, type CountryCode } from 'libphonenumber-js'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { getCountries, getCountryCallingCode, type CountryCode } from 'libphonenumber-js';
 
 type CountryComboboxProps = {
-  country?: CountryCode
-  onChange: (country: CountryCode) => void
-}
+  country?: CountryCode;
+  onChange: (country: CountryCode) => void;
+};
 
-const countryNames = new Intl.DisplayNames(['ru'], { type: 'region' })
+const countryNames = new Intl.DisplayNames(['ru'], { type: 'region' });
 
 function getFlagUrl(country: CountryCode) {
-  return `https://flagcdn.com/w40/${country.toLowerCase()}.png`
+  return `https://flagcdn.com/w40/${country.toLowerCase()}.png`;
 }
 
 export function CountryCombobox({ country, onChange }: CountryComboboxProps) {
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const comboboxRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const selectedCountryOptionRef = useRef<HTMLButtonElement>(null)
-  const countries = useMemo(() => getCountries().sort((left, right) => (
-    countryNames.of(left)?.localeCompare(countryNames.of(right) ?? '', 'ru') ?? 0
-  )), [])
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const comboboxRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const selectedCountryOptionRef = useRef<HTMLButtonElement>(null);
+  const countries = useMemo(
+    () =>
+      getCountries().sort(
+        (left, right) =>
+          countryNames.of(left)?.localeCompare(countryNames.of(right) ?? '', 'ru') ?? 0,
+      ),
+    [],
+  );
 
   useEffect(() => {
     if (!isMenuOpen) {
-      return
+      return;
     }
 
-    selectedCountryOptionRef.current?.focus()
+    selectedCountryOptionRef.current?.focus();
 
     function closeMenuOnOutsidePointerDown(event: PointerEvent) {
       if (!comboboxRef.current?.contains(event.target as Node)) {
-        setIsMenuOpen(false)
+        setIsMenuOpen(false);
       }
     }
 
-    document.addEventListener('pointerdown', closeMenuOnOutsidePointerDown)
+    document.addEventListener('pointerdown', closeMenuOnOutsidePointerDown);
 
-    return () => document.removeEventListener('pointerdown', closeMenuOnOutsidePointerDown)
-  }, [isMenuOpen])
+    return () => document.removeEventListener('pointerdown', closeMenuOnOutsidePointerDown);
+  }, [isMenuOpen]);
 
   function selectCountry(nextCountry: CountryCode) {
-    onChange(nextCountry)
-    setIsMenuOpen(false)
-    triggerRef.current?.focus()
+    onChange(nextCountry);
+    setIsMenuOpen(false);
+    triggerRef.current?.focus();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape') {
-      setIsMenuOpen(false)
-      triggerRef.current?.focus()
+      setIsMenuOpen(false);
+      triggerRef.current?.focus();
     }
   }
 
@@ -68,7 +73,9 @@ export function CountryCombobox({ country, onChange }: CountryComboboxProps) {
         {country ? (
           <img alt="" className="country-flag" src={getFlagUrl(country)} />
         ) : (
-          <span aria-hidden="true" className="country-placeholder">🌐</span>
+          <span aria-hidden="true" className="country-placeholder">
+            🌐
+          </span>
         )}
         <span
           aria-hidden="true"
@@ -96,5 +103,5 @@ export function CountryCombobox({ country, onChange }: CountryComboboxProps) {
         </ul>
       )}
     </div>
-  )
+  );
 }
