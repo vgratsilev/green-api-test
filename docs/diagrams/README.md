@@ -12,7 +12,8 @@ flowchart LR
   Runtime -->|default public API origin| Form
   Form --> Country[CountryCombobox]
   Form -->|API origin + credentials + phone| App
-  App -->|confirmed connection| Workspace[ChatWorkspace]
+  App -->|confirmed connection, cached messages and contact| Workspace[ChatWorkspace]
+  Workspace -->|updated messages and contact snapshot| App
 
   Workspace --> Contact[useChatContact]
   Workspace --> Polling[useNotificationPolling]
@@ -32,6 +33,8 @@ flowchart LR
 classDiagram
   class App {
     -connection
+    -chatSnapshots: record keyed by sessionKey
+    -contactSnapshots: record keyed by sessionKey
     +render()
   }
 
@@ -87,6 +90,13 @@ classDiagram
     +contactName: string
     +avatarUrl: string
     +contactChatId: string
+    +initialContact: ContactSnapshot
+    +onContactChange(contact)
+  }
+
+  class ContactSnapshot {
+    +contactName: string
+    +avatarUrl: string
   }
 
   class useNotificationPolling {
@@ -103,11 +113,13 @@ classDiagram
 
   App --> ConnectionForm
   App --> ChatWorkspace
+  App --> ContactSnapshot : stores by chat key
   App --> GreenApiClient : preflight and creates
   ConnectionForm --> App : submits connection values
   ChatWorkspace --> GreenApiClient : uses
   ChatWorkspace --> useChatContact : uses
   ChatWorkspace --> useNotificationPolling : uses
+  useChatContact --> ContactSnapshot : reads and updates
   useChatContact --> GreenApiClient : getContactInfo
   useNotificationPolling --> GreenApiClient : receive/delete
   GreenApiClient --> GreenApiCredentials
@@ -136,6 +148,7 @@ stateDiagram-v2
 ```
 
 Reloading the page intentionally ends the session: its credentials exist only in React state.
+`App` keeps message arrays and contact display snapshots in memory, keyed by API origin, instance ID, and recipient phone. Reopening a chat restores both immediately; reloading the page clears both. The contact snapshot contains only the name and avatar URL. `contactChatId` is used for receipt classification only after a fresh `GetContactInfo` response.
 
 ## 4. Переходы состояния исходящего сообщения
 
@@ -226,6 +239,31 @@ sequenceDiagram
 
 Один polling run выполняет только одну операцию с очередью одновременно. При остановке hook отменяет запрос; новый run ожидает завершения старой операции, чтобы не читать и не удалять уведомления параллельно. Если для входящего сообщения со скрытым номером ещё не загружена контактная идентичность, hook сохраняет receipt и откладывает классификацию. Разрешённый ответ DELETE завершает receipt даже при `result: false`; повторяемая ошибка сохраняет его для повтора. Повторяемые ошибки получают задержки 1, 2 и 4 секунды; затем UI предлагает ручной перезапуск.
 
+## 7. Восстановление заголовка чата
+
+```mermaid
+sequenceDiagram
+  participant App
+  participant UI as ChatWorkspace
+  participant Hook as useChatContact
+  participant Client as GREEN-API client
+  participant API as GREEN-API HTTP API
+
+  App-->>UI: Передаёт сообщения и сохранённые name/avatar по ключу чата
+  UI->>Hook: initialContact
+  Hook-->>UI: Сразу возвращает сохранённые name/avatar со статусом loading
+  UI->>UI: Отображает имя и аватар из снимка
+  Hook->>Client: getContactInfo(credentials, phone@c.us)
+  Client->>API: POST /getContactInfo
+  API-->>Client: contactName, name, avatar, chatId
+  Client-->>Hook: Данные контакта
+  Hook->>Hook: Проверяет и обновляет отображаемый контакт
+  Hook-->>UI: Новый снимок через onContactChange
+  UI-->>App: Сохраняет снимок по ключу чата
+```
+
+Снимок используется для мгновенного отображения имени и аватара, пока выполняется запрос. Ошибка поиска не убирает уже сохранённые данные с экрана. `contactChatId` не восстанавливается из снимка: он становится доступен polling только после свежей проверки.
+
 ## Проверка актуальности
 
-При изменении `src/api/greenApi.ts`, `src/features/chat/useNotificationPolling.ts`, `src/features/chat/ChatWorkspace.tsx` или границ компонентов обновите соответствующую диаграмму в этом документе. Поведение polling дополнительно зафиксировано в [решении о порядке receipt](../solutions/logic-errors/polling-run-receipt-ordering.md).
+При изменении `src/App.tsx`, `src/api/greenApi.ts`, `src/features/chat/useChatContact.ts`, `src/features/chat/useNotificationPolling.ts`, `src/features/chat/ChatWorkspace.tsx` или границ компонентов обновите соответствующую диаграмму в этом документе. Поведение polling дополнительно зафиксировано в [решении о порядке receipt](../solutions/logic-errors/polling-run-receipt-ordering.md).

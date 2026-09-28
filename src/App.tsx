@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createGreenApiClient } from './api/greenApi';
 import { getRuntimeConfig } from './config/runtime';
 import { ChatWorkspace, type ChatMessage } from './features/chat/ChatWorkspace';
+import type { ChatContactSnapshot } from './features/chat/useChatContact';
 import { ConnectionForm, type ConnectionValues } from './features/connection/ConnectionForm';
 
 type AppProps = {
@@ -18,6 +19,7 @@ export function App({ apiUrl }: AppProps) {
   const [connection, setConnection] = useState<ConfirmedConnection>();
   const [isEditingConnection, setIsEditingConnection] = useState(false);
   const chatSnapshotsRef = useRef<Record<string, ChatMessage[]>>({});
+  const contactSnapshotsRef = useRef<Record<string, ChatContactSnapshot>>({});
   const preflightControllerRef = useRef<AbortController | undefined>(undefined);
   const sessionKey = connection ? getSessionKey(connection) : '';
   const saveChatSnapshot = useCallback(
@@ -25,6 +27,14 @@ export function App({ apiUrl }: AppProps) {
       if (!sessionKey) return;
 
       chatSnapshotsRef.current[sessionKey] = messages;
+    },
+    [sessionKey],
+  );
+  const saveContactSnapshot = useCallback(
+    (contact: ChatContactSnapshot) => {
+      if (!sessionKey) return;
+
+      contactSnapshotsRef.current[sessionKey] = contact;
     },
     [sessionKey],
   );
@@ -68,6 +78,8 @@ export function App({ apiUrl }: AppProps) {
           phone={connection.phone}
           initialMessages={chatSnapshotsRef.current[sessionKey]}
           onMessagesChange={saveChatSnapshot}
+          initialContact={contactSnapshotsRef.current[sessionKey]}
+          onContactChange={saveContactSnapshot}
           onReturnToConnection={() => setIsEditingConnection(true)}
         />
       </main>
